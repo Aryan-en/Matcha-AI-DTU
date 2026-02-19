@@ -1,0 +1,12 @@
+node_modules
+.DS_Store
+dist
+.env
+.turbo
+coverage
+.next
+__pycache__
+*.pyc
+.venv
+venv
+env
