@@ -1,76 +1,173 @@
 @import "tailwindcss";
 
+/* ==========================================================
+   MATCHA AI — BROADCAST CONTROL ROOM
+   Fonts  : Bebas Neue (display) · Barlow Condensed (UI) · DM Mono (data)
+   Palette: Navy-black · Broadcast amber · Electric status accents
+   ========================================================== */
+
 :root {
-  --background: #0a0a0a;
-  --foreground: #e5e5e5;
-  --accent: #10b981;
-  --accent-dim: #059669;
-  --surface: #141414;
-  --border: #262626;
+  --bg:         #07080F;
+  --surface-1:  #0C0E1B;
+  --surface-2:  #111528;
+  --border:     #1A1E33;
+  --border-2:   #252A45;
+
+  --green:      #0AE87C;
+  --red:        #FF2B4A;
+  --bg-dark:    #07080F;
+  --bg:         #07080F;
+  --surface-1:  #0C0E1B;
+  --surface-2:  #111528;
+  --border:     #1A1E33;
+  --border-2:   #252A45;
+  --text:       #ECE8DF;
+  --text-mid:   #9096B4;
+  --text-dim:   #484E6A;
+
+  --text:       #ECE8DF;
+  --text-mid:   #9096B4;
+  --text-dim:   #484E6A;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-heading);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --font-display: var(--font-bebas);
+  --font-heading: var(--font-barlow);
+  --font-mono:    var(--font-dm-mono);
+  --font-sans:    var(--font-barlow);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #e5e5e5;
-  }
+* {
+  border-radius: 0 !important;
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--text);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-barlow), "Arial Narrow", system-ui, sans-serif;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, rgba(255,255,255,0.028) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-attachment: fixed;
+  min-height: 100vh;
+  color: var(--text);
 }
 
-/* Custom heading font */
+/* Top amber rule */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--green) 0%, rgba(10,232,124,0.25) 100%);
+  z-index: 999;
+}
+
+/* ── Font utilities ─────────────────────────────────────── */
+.font-display {
+  font-family: var(--font-bebas), "Impact", "Arial Narrow", sans-serif;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 .font-heading {
-  font-family: var(--font-heading), system-ui, sans-serif;
+  font-family: var(--font-barlow), "Arial Narrow", system-ui, sans-serif;
+}
+.font-mono {
+  font-family: var(--font-dm-mono), "Courier New", monospace;
 }
 
-/* Flat design overrides - kill all rounded corners */
-* {
-  border-radius: 0 !important;
+/* ── Animations ─────────────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.15; }
 }
+@keyframes fadeup {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-/* Edgy accent line decoration */
-.accent-line {
-  position: relative;
-}
-.accent-line::before {
-  content: '';
+.animate-blink  { animation: blink 1.4s step-start infinite; }
+.animate-fadeup { animation: fadeup 0.35s ease-out forwards; }
+.animate-spin   { animation: spin 1s linear infinite; }
+
+/* ── Corner bracket decoration ──────────────────────────── */
+.bracket { position: relative; }
+.bracket::before,
+.bracket::after {
+  content: "";
   position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 60px;
-  height: 3px;
-  background: var(--accent);
+  width: 10px; height: 10px;
+  border-color: var(--border-2);
+  border-style: solid;
+  pointer-events: none;
 }
+.bracket::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; }
+.bracket::after  { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
+.bracket-amber::before,
+/* .bracket-amber removed, use .bracket-green instead */
+.bracket-green::before,
+.bracket-green::after { border-color: var(--green); opacity: 0.5; }
 
-/* Sharp button hover effect */
-.btn-flat {
-  transition: all 0.15s ease;
-  border: 1px solid transparent;
-}
-.btn-flat:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 0 0 var(--accent);
-}
-
-/* Edgy card hover */
-.card-flat {
-  transition: all 0.15s ease;
+/* ── Card ───────────────────────────────────────────────── */
+.card {
+  background: var(--surface-1);
   border: 1px solid var(--border);
+  transition: border-color 0.15s ease;
 }
-.card-flat:hover {
-  border-color: var(--accent);
-  box-shadow: 4px 4px 0 0 var(--accent);
-  transform: translate(-2px, -2px);
+.card:hover { border-color: var(--border-2); }
+/* .card-green for hover effect */
+.card-green:hover { border-color: rgba(10,232,124,0.30); }
+
+/* ── Drop zone ──────────────────────────────────────────── */
+.drop-zone {
+  border: 1px dashed var(--border-2);
+  background: var(--surface-1);
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
 }
+.drop-zone.active, .drop-zone:hover {
+  border-color: var(--green);
+  background: rgba(10,232,124,0.10);
+}
+.drop-zone.has-file {
+  border-style: solid;
+  border-color: rgba(10,232,124,0.4);
+  background: rgba(10,232,124,0.10);
+}
+
+/* ── Progress bar ───────────────────────────────────────── */
+.progress-track {
+  height: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+ .progress-fill          { height: 100%; background: var(--green);  transition: width 0.4s ease-out; }
+ .progress-fill-green    { background: var(--green); }
+
+/* ── Status chips ───────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-dm-mono), monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 3px 9px;
+  border: 1px solid;
+}
+.chip-green  { color: var(--green);  border-color: rgba(10,232,124,0.35);  background: rgba(10,232,124,0.08); }
+/* Only green, red, ghost chips remain */
+.chip-red    { color: var(--red);    border-color: rgba(255,43,74,0.35);   background: rgba(255,43,74,0.08); }
+.chip-ghost  { color: var(--text-dim); border-color: var(--border); background: transparent; }
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 3px; height: 3px; }\n::-webkit-scrollbar-track { background: var(--bg); }\n::-webkit-scrollbar-thumb { background: var(--border-2); }\n::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }

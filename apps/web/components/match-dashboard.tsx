@@ -127,125 +127,158 @@ export function MatchDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-zinc-500">
-        <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading matches...
+      <div className="flex items-center justify-center h-48">
+        <span className="font-mono animate-blink" style={{ fontSize: "10px", color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.14em" }}>
+          LOADING FEED...
+        </span>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Filter bar */}
+      {/* Filter strip */}
       {matches.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <Filter className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="font-mono mr-2" style={{ fontSize: "9px", color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.10em" }}>FILTER</span>
           {FILTER_OPTIONS.map((f) => {
             const count = f === "ALL" ? matches.length : matches.filter((m) => m.status === f).length;
+            const active = filter === f;
             return (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`text-xs px-4 py-1.5 border transition-all font-medium uppercase tracking-wide ${
-                  filter === f
-                    ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
-                    : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
-                }`}
+                className="font-mono transition-colors"
+                style={{
+                  fontSize: "9px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.10em",
+                  padding: "4px 12px",
+                  border: `1px solid ${active ? "var(--amber)" : "var(--border)"}`,
+                  background: active ? "var(--amber-glow)" : "transparent",
+                  color: active ? "var(--amber)" : "var(--text-dim)",
+                }}
               >
-                {f === "ALL" ? "All" : STATUS_CONFIG[f]?.label ?? f}
-                {count > 0 && <span className="ml-1.5 text-[10px] opacity-70">{count}</span>}
+                {f === "ALL" ? "ALL" : STATUS_CONFIG[f]?.label ?? f}
+                {count > 0 && <span style={{ marginLeft: "4px", opacity: 0.6 }}>{count}</span>}
               </button>
             );
           })}
         </div>
       )}
 
+      {/* Empty state */}
       {!visible.length && (
-        <div className="border border-dashed border-zinc-700 p-12 text-center text-zinc-500 bg-zinc-900/50">
-          <Film className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="text-sm uppercase tracking-wide">{matches.length ? "No matches match this filter." : "No matches yet — upload one to get started."}</p>
+        <div className="flex flex-col items-center justify-center h-48 border border-dashed" style={{ borderColor: "var(--border)" }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" style={{ color: "var(--text-dim)", marginBottom: "12px" }}>
+            <rect x="2" y="2" width="20" height="20" /><path d="M8 10l4-4 4 4M12 6v9" /><path d="M6 18h12" />
+          </svg>
+          <p className="font-mono" style={{ fontSize: "9px", color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+            {matches.length ? "NO MATCHES FOR THIS FILTER" : "NO MATCHES YET — UPLOAD TO START"}
+          </p>
         </div>
       )}
 
-      {visible.map((m) => {
-        const cfg = STATUS_CONFIG[m.status] ?? STATUS_CONFIG.UPLOADED;
-        const isConfirming = confirmId === m.id;
-        const isDeleting = deletingId === m.id;
-        const progress = progressMap[m.id] ?? 0;
-        const isProcessing = m.status === "PROCESSING" || m.status === "UPLOADED";
+      {/* Match rows */}
+      <div className="space-y-px">
+        {visible.map((m) => {
+          const cfg = STATUS_CONFIG[m.status] ?? STATUS_CONFIG.UPLOADED;
+          const isConfirming = confirmId === m.id;
+          const isDeleting = deletingId === m.id;
+          const progress = progressMap[m.id] ?? 0;
+          const isProcessing = m.status === "PROCESSING" || m.status === "UPLOADED";
+          const accentColor =
+            m.status === "COMPLETED" ? "var(--green)"
+            : m.status === "PROCESSING" ? "var(--cyan)"
+            : m.status === "UPLOADED" ? "var(--yellow)"
+            : "var(--red)";
+          const chipClass =
+            m.status === "COMPLETED" ? "chip chip-green"
+            : m.status === "PROCESSING" ? "chip chip-cyan"
+            : m.status === "FAILED" ? "chip chip-red"
+            : "chip chip-ghost";
 
         return (
-          <div key={m.id} className="bg-[#141414] border border-zinc-800 hover:border-emerald-500/50 transition-all group relative overflow-hidden card-flat">
-            {/* Progress bar at top */}
-            {isProcessing && (
-              <div className="absolute top-0 left-0 right-0 h-0.5 bg-zinc-800">
-                <div 
-                  className="h-full bg-emerald-500 transition-all duration-300 ease-out"
-                  style={{ width: `${progress}%` }}
-                />
+          <div key={m.id} className="card card-amber relative group overflow-hidden" style={{ borderLeft: `2px solid ${accentColor}` }}>
+            {/* Top progress line */}
+            {isProcessing && progress > 0 && (
+              <div className="progress-track absolute top-0 left-0 right-0" style={{ height: "1px" }}>
+                <div className="progress-fill progress-fill-cyan" style={{ width: `${progress}%` }} />
               </div>
             )}
             <Link href={`/matches/${m.id}`} className="block p-4">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 border ${cfg.color} uppercase tracking-wide`}>
-                      {cfg.icon} {cfg.label}
-                      {isProcessing && progress > 0 && (
-                        <span className="ml-1 tabular-nums">{progress}%</span>
-                      )}
+                  {/* Status + time */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={chipClass}>
+                      {cfg.label}{isProcessing && progress > 0 && <span style={{ marginLeft: "4px" }}>{progress}%</span>}
                     </span>
-                    <span className="text-xs text-zinc-600 uppercase">{timeAgo(m.createdAt)}</span>
+                    <span className="font-mono" style={{ fontSize: "9px", color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      {timeAgo(m.createdAt)}
+                    </span>
                   </div>
-                  <p className="text-sm text-zinc-500 font-mono truncate group-hover:text-zinc-300 transition-colors">
+                  {/* ID */}
+                  <p className="font-mono truncate" style={{ fontSize: "11px", color: "var(--text-dim)" }}>
                     {m.id}
                   </p>
-                </div>
+                </div>\n\n                {/* Right: duration + counts */}
                 <div className="text-right shrink-0 space-y-1">
-                  <div className="flex items-center gap-1 justify-end text-xs text-zinc-500">
-                    <Clock className="w-3 h-3" />{formatDuration(m.duration)}
+                  <div className="font-mono flex items-center justify-end gap-1" style={{ fontSize: "11px", color: "var(--text-dim)" }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    {formatDuration(m.duration)}
                   </div>
                   {m.status === "COMPLETED" && (
-                    <div className="text-xs text-zinc-600">
-                      <span className="text-emerald-400 font-semibold">{m._count.events}</span> events ·{" "}
-                      <span className="text-emerald-400 font-semibold">{m._count.highlights}</span> clips
+                    <div className="font-mono" style={{ fontSize: "10px", color: "var(--text-dim)" }}>
+                      <span style={{ color: "var(--amber)" }}>{m._count.events}</span> ev &middot;{" "}
+                      <span style={{ color: "var(--amber)" }}>{m._count.highlights}</span> cl
                     </div>
                   )}
                 </div>
               </div>
             </Link>
 
-            {/* Delete button */}
-            <div className="absolute top-3 right-3 flex items-center gap-2">
+            {/* Delete */}
+            <div className="absolute top-3 right-3 flex items-center gap-1">
               {!isConfirming ? (
                 <button
                   onClick={(e) => { e.preventDefault(); setConfirmId(m.id); }}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-all border border-transparent hover:border-red-500/30"
-                  title="Delete analysis"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
+                  style={{ color: "var(--text-dim)" }}
+                  title="Delete"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v6M14 11v6M9 6V4h6v2" />
+                  </svg>
                 </button>
               ) : (
-                <div className="flex items-center gap-1.5 bg-zinc-800 border border-zinc-600 px-2 py-1">
-                  <span className="text-xs text-zinc-400 uppercase">Delete?</span>
+                <div className="flex items-center gap-1 px-2 py-1 border" style={{ background: "var(--surface-2)", borderColor: "var(--border-2)" }}>
+                  <span className="font-mono" style={{ fontSize: "9px", color: "var(--text-dim)", textTransform: "uppercase" }}>DEL?</span>
                   <button
                     onClick={(e) => { e.preventDefault(); handleDelete(m.id); }}
                     disabled={isDeleting}
-                    className="text-xs text-red-400 hover:text-red-300 font-medium px-2 py-0.5 hover:bg-red-500/10 transition-all uppercase"
+                    className="font-mono px-1.5"
+                    style={{ fontSize: "9px", color: "var(--red)", textTransform: "uppercase" }}
                   >
-                    {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Yes"}
+                    {isDeleting ? "..." : "YES"}
                   </button>
                   <button
                     onClick={(e) => { e.preventDefault(); setConfirmId(null); }}
-                    className="text-xs text-zinc-500 hover:text-zinc-300 px-2 py-0.5 transition-colors uppercase"
+                    className="font-mono px-1.5"
+                    style={{ fontSize: "9px", color: "var(--text-dim)", textTransform: "uppercase" }}
                   >
-                    No
+                    NO
                   </button>
                 </div>
               )}
             </div>
           </div>
         );
-      })}
+        })}
+      </div>
     </div>
   );
 }

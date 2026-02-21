@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient, Match, EventType } from '@prisma/client';
+import { PrismaClient, Match, EventType, Prisma } from '@prisma/client';
 import { HttpService } from '@nestjs/axios';
 import { EventsGateway } from '../events/events.gateway';
 import { firstValueFrom } from 'rxjs';
@@ -56,15 +56,28 @@ export class MatchesService {
   }
 
   async create(file: any): Promise<Match> {
+    if (!file || !file.buffer || !file.originalname) {
+      throw new Error("Invalid file upload");
+    }
+    if (file.buffer.length > 5000000000) {
+      throw new Error("File exceeds 5GB limit");
+    }
+    
     const fileName = `${Date.now()}-${file.originalname}`;
     const uploadsDir = path.join(process.cwd(), '..', '..', 'uploads');
+    let filePath: string;
 
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    try {
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      filePath = path.join(uploadsDir, fileName);
+      fs.writeFileSync(filePath, file.buffer);
+    } catch (error) {
+      this.logger.error(`Failed to save upload: ${(error as Error).message}`);
+      throw error;
     }
-
-    const filePath = path.join(uploadsDir, fileName);
-    fs.writeFileSync(filePath, file.buffer);
 
     // Use the actual filesystem path (works for native Windows execution)
     const publicUrl = `http://localhost:4000/uploads/${fileName}`; // Mock public URL
@@ -84,18 +97,41 @@ export class MatchesService {
 
   async triggerInference(matchId: string, videoUrl: string) {
     const inferenceUrl = process.env.INFERENCE_URL || 'http://localhost:8000';
-    try {
-      this.logger.log(
-        `Triggering inference for match ${matchId} at ${videoUrl}`,
-      );
-      await firstValueFrom(
-        this.httpService.post(`${inferenceUrl}/api/v1/analyze`, {
-          match_id: matchId,
-          video_url: videoUrl, // This needs to be a real path/URL accessible to Docker
-        }) as any,
-      );
-    } catch (error) {
-      this.logger.error(`Failed to trigger inference: ${error.message}`);
+    const maxAttempts = 5;
+    const baseDelayMs = 2000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        this.logger.log(`Triggering inference for match ${matchId} (attempt ${attempt}/${maxAttempts})`);
+        await firstValueFrom(
+          this.httpService.post(
+            `${inferenceUrl}/api/v1/analyze`,
+            { match_id: matchId, video_url: videoUrl },
+            { timeout: 10000 },
+          ) as any,
+        );
+        this.logger.log(`Inference triggered successfully for match ${matchId}`);
+        return; // Success
+      } catch (error) {
+        const isLast = attempt === maxAttempts;
+        this.logger.error(
+          `Inference trigger attempt ${attempt}/${maxAttempts} failed: ${error.message}`,
+        );
+        if (isLast) {
+          // Mark match as FAILED so it's visible in UI
+          await this.prisma.match
+            .update({ where: { id: matchId }, data: { status: 'FAILED' } })
+            .catch(() => {});
+          this.eventsGateway.server
+            .to(matchId)
+            .emit('progress', { matchId, progress: -1 });
+          return;
+        }
+        // Exponential backoff: 2s, 4s, 8s, 16s
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        this.logger.log(`Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
     }
   }
 
@@ -141,11 +177,17 @@ export class MatchesService {
         where: { id },
         data: { status: 'PROCESSING', progress: Math.round(progress) },
       })
-      .catch(() => {});
+      .catch((err: any) => {
+        this.logger.warn(`Failed to update progress for match ${id}: ${err.message}`);
+      });
     this.eventsGateway.server.to(id).emit('progress', { matchId: id, progress });
   }
 
   async completeMatch(id: string, payload: CompletePayload) {
+    if (!id || !payload) {
+      throw new Error("Invalid match ID or payload");
+    }
+    
     const {
       events = [],
       highlights = [],
@@ -162,7 +204,14 @@ export class MatchesService {
       FOUL: EventType.FOUL,
       TACKLE: EventType.TACKLE,
       SAVE: EventType.SAVE,
-      Celebrate: EventType.Celebrate,
+      CELEBRATION: EventType.CELEBRATION,
+      Celebrate: EventType.CELEBRATION, // Legacy fallback for old code
+      HIGHLIGHT: EventType.HIGHLIGHT,
+      PENALTY: EventType.PENALTY,
+      RED_CARD: EventType.RED_CARD,
+      YELLOW_CARD: EventType.YELLOW_CARD,
+      CORNER: EventType.CORNER,
+      OFFSIDE: EventType.OFFSIDE,
     };
     const validTypes = new Set<string>(Object.values(EventType));
 
@@ -170,10 +219,10 @@ export class MatchesService {
       .map((e) => ({
         matchId: id,
         timestamp: e.timestamp,
-        type: typeMap[e.type] ?? EventType.TACKLE,
-        confidence: e.confidence,
-        finalScore: e.finalScore ?? 0,
-        commentary: e.commentary ?? null,
+        type: typeMap[e.type] ?? EventType.HIGHLIGHT, // Safe fallback to generic highlight
+        confidence: Math.max(0, Math.min(1, e.confidence)), // Clamp 0-1
+        finalScore: Math.max(0, Math.min(10, e.finalScore ?? 0)), // Clamp 0-10
+        commentary: (e.commentary ?? "").substring(0, 1000), // Cap at 1000 chars
       }))
       .filter((e) => validTypes.has(e.type));
 
@@ -181,19 +230,19 @@ export class MatchesService {
       matchId: id,
       startTime: h.startTime,
       endTime: h.endTime,
-      score: h.score,
-      eventType: h.eventType ?? null,
-      commentary: h.commentary ?? null,
+      score: Math.max(0, Math.min(10, h.score)), // Clamp 0-10
+      eventType: (h.eventType ?? "").substring(0, 50), // Cap at 50 chars
+      commentary: (h.commentary ?? "").substring(0, 500), // Cap at 500 chars
       videoUrl: h.videoUrl ?? null,
     }));
 
     const validEmotion = (emotionScores ?? []).map((s) => ({
       matchId: id,
       timestamp: s.timestamp,
-      audioScore: s.audioScore,
-      motionScore: s.motionScore,
-      contextWeight: s.contextWeight,
-      finalScore: s.finalScore,
+      audioScore: Math.max(0, Math.min(1, s.audioScore)), // Clamp 0-1
+      motionScore: Math.max(0, Math.min(1, s.motionScore)), // Clamp 0-1
+      contextWeight: Math.max(0, Math.min(1, s.contextWeight)), // Clamp 0-1
+      finalScore: Math.max(0, Math.min(10, s.finalScore)), // Clamp 0-10
     }));
 
     await this.prisma.$transaction([
@@ -204,12 +253,12 @@ export class MatchesService {
         where: { id },
         data: {
           status: 'COMPLETED',
-          duration: duration ?? null,
-          summary: summary ?? null,
-          highlightReelUrl: highlightReelUrl ?? null,
-          trackingData: trackingData ?? null,
-          teamColors: teamColors ?? null,
-        } as any,
+          duration: Math.max(0, duration ?? 0), // Ensure non-negative
+          summary: (summary ?? "").substring(0, 5000), // Cap at 5000 chars
+          highlightReelUrl,
+          trackingData,
+          teamColors,
+        },
       }),
     ]);
 
@@ -227,8 +276,16 @@ export class MatchesService {
   }
 
   async reanalyzeMatch(id: string): Promise<{ ok: boolean }> {
+    if (!id || typeof id !== 'string') {
+      this.logger.error("Invalid match ID for reanalysis");
+      return { ok: false };
+    }
+    
     const match = await this.prisma.match.findUnique({ where: { id } });
-    if (!match) return { ok: false };
+    if (!match) {
+      this.logger.warn(`Match not found: ${id}`);
+      return { ok: false };
+    }
 
     // Wipe previous analysis results, keep the video file
     await this.prisma.$transaction([
@@ -239,8 +296,9 @@ export class MatchesService {
         where: { id },
         data: {
           status: 'PROCESSING',
-          trackingData: null,
-          teamColors: null,
+          progress: 0,
+          trackingData: undefined,
+          teamColors: undefined,
           summary: null,
           duration: null,
         } as any,
@@ -249,8 +307,13 @@ export class MatchesService {
 
     // Reconstruct the filesystem path from the stored public URL
     // uploadUrl format: http://localhost:4000/uploads/<filename>
-    const fileName = match.uploadUrl.split('/uploads/').pop() || '';
     const uploadsDir = path.join(process.cwd(), '..', '..', 'uploads');
+    const uploadUrlParts = match.uploadUrl.split('/uploads/');
+    if (uploadUrlParts.length < 2) {
+      this.logger.error(`Invalid uploadUrl format: ${match.uploadUrl}`);
+      throw new Error('Invalid uploadUrl format');
+    }
+    const fileName = uploadUrlParts[uploadUrlParts.length - 1];
     const videoPath = path.join(uploadsDir, fileName);
 
     this.logger.log(`Re-analyzing match ${id} from ${videoPath}`);

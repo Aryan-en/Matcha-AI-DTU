@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Matcha-AI-DTU Frontend (`apps/web`)
 
-## Getting Started
+This is the frontend application for the Matcha-AI-DTU platform, built with modern web technologies including **Next.js 15**, **React 19**, and **Tailwind CSS**. 
 
-First, run the development server:
+## ✨ Features
+- **Video Upload Portal**: Utilizes `react-dropzone` for robust and intuitive drag-and-drop video file uploading.
+- **Real-Time Dashboards**: Establishes continuous connection to the Orchestrator utilizing `socket.io-client` for real-time video processing updates and analysis percentages.
+- **Client-Side AI Integration**: Features TensorFlow.js (`@tensorflow/tfjs`, `@tensorflow-models/coco-ssd`) and FFmpeg WASM interfaces for client-side preprocessing.
+- **Sleek UI Framework**: Tailored with extensive Tailwind CSS styling and animated icons from `lucide-react`.
 
+## 🛠 Tech Stack
+- **Framework**: Next.js (App Router)
+- **UI & Styling**: Tailwind CSS v4, `clsx`, `tailwind-merge`
+- **Data/WebSockets**: Socket.io Client
+- **Processing Support**: FFmpeg integration
+
+## 🚀 Getting Started
+
+From the root of the repository or from `apps/web`:
+
+### Installation
+Dependencies are gracefully handled by turbo in the root workspace, but you can install locally too:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Running Locally
+```bash
+npm run dev
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The application will launch on `http://localhost:3000`. 
+Ensure the Orchestrator API (`http://localhost:4000`) is running concurrently for full functionality, as the frontend heavily relies on it for API requests and WebSocket events.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📁 Directory Context
+- `app/`: Next.js App Router endpoints, pages, and layouts (e.g. `page.tsx`, `globals.css`).
+- Components include modern Hooks-based React designs managing websocket states, highlighting parsed game events, and rendering generated commentary audio on top of analyzed sports videos.

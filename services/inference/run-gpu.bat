@@ -27,11 +27,38 @@ call venv\Scripts\activate.bat
 :: Install GPU dependencies
 echo Installing GPU dependencies (PyTorch CUDA 12.1)...
 pip install --upgrade pip
-pip install -r requirements-gpu.txt
+if exist requirements-gpu.txt (
+    pip install -r requirements-gpu.txt
+) else (
+    echo WARNING: requirements-gpu.txt not found, using requirements.txt...
+    if not exist requirements.txt (
+        echo ERROR: requirements.txt not found
+        pause
+        exit /b 1
+    )
+    pip install -r requirements.txt
+)
+if errorlevel 1 (
+    echo ERROR: pip install failed
+    pause
+    exit /b 1
+)
 
 :: Set environment variables
 set ORCHESTRATOR_URL=http://localhost:4000
-set GEMINI_API_KEY=AIzaSyBBhthb4OoLTZQS6aWKv0QU5ix-13ew6V8
+
+:: Load GEMINI_API_KEY from environment or .env file
+if defined GEMINI_API_KEY (
+    echo GEMINI_API_KEY loaded from environment
+) else if exist ".env" (
+    echo Loading .env file...
+    for /f "tokens=*" %%i in ('findstr /i "GEMINI_API_KEY" .env') do set "%%i"
+)
+
+if not defined GEMINI_API_KEY (
+    echo WARNING: GEMINI_API_KEY not set. Gemini features will be unavailable.
+    echo To enable: set GEMINI_API_KEY=your_api_key or add to .env file
+)
 
 :: Check CUDA
 echo.

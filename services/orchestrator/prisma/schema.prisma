@@ -27,38 +27,47 @@ model Match {
 model Event {
   id          String    @id @default(uuid())
   matchId     String
-  match       Match     @relation(fields: [matchId], references: [id])
-  timestamp   Float
+  match       Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  timestamp   Float     // seconds, precision to 0.01s
   type        EventType
-  confidence  Float
-  finalScore  Float     @default(0)
+  confidence  Float     // 0.0-1.0
+  finalScore  Float     @default(0) // 0-10 scale, see compute_context_score()
   commentary  String?
   createdAt   DateTime  @default(now())
+  
+  @@index([matchId])
+  @@index([timestamp])
 }
 
 model EmotionScore {
   id            String   @id @default(uuid())
   matchId       String
-  match         Match    @relation(fields: [matchId], references: [id])
-  timestamp     Float
-  audioScore    Float
-  motionScore   Float
-  contextWeight Float
-  finalScore    Float
+  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  timestamp     Float    // seconds
+  audioScore    Float    // 0.0-1.0
+  motionScore   Float    // 0.0-1.0
+  contextWeight Float    // 0.0-1.0 time-based weight
+  finalScore    Float    // 0-10 composite score
   createdAt     DateTime @default(now())
+  
+  @@index([matchId])
+  @@index([timestamp])
 }
 
 model Highlight {
   id          String   @id @default(uuid())
   matchId     String
-  match       Match    @relation(fields: [matchId], references: [id])
-  startTime   Float
-  endTime     Float
-  score       Float
-  eventType   String?
-  commentary  String?
-  videoUrl    String?
+  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  startTime   Float    // seconds, inclusive
+  endTime     Float    // seconds, exclusive
+  score       Float    // 0-10 highlight significance
+  eventType   String?  // e.g., "GOAL", "SAVE", "TACKLE"
+  commentary  String?  // highlight description
+  videoUrl    String?  // optional URL to highlight clip
   createdAt   DateTime @default(now())
+  
+  @@index([matchId])
+  @@index([startTime])
 }
 
 enum MatchStatus {
@@ -73,5 +82,11 @@ enum EventType {
   FOUL
   TACKLE
   SAVE
-  Celebrate
+  CELEBRATION    // SoccerNet/Vision AI detected celebration
+  HIGHLIGHT      // Generic fallback highlight from motion analysis
+  PENALTY
+  RED_CARD
+  YELLOW_CARD
+  CORNER
+  OFFSIDE
 }

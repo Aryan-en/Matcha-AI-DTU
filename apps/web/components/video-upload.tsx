@@ -137,116 +137,134 @@ export function VideoUpload() {
   };
 
   return (
-    <div className="w-full max-w-xl mx-auto">
+    <div className="w-full">
       <div
         {...getRootProps()}
-        className={cn(
-          "relative group border-2 border-dashed p-12 transition-all duration-200 cursor-pointer bg-[#0f0f0f]",
-          isDragActive
-            ? "border-emerald-500 bg-emerald-500/5"
-            : "border-zinc-700 hover:border-emerald-500/50 hover:bg-zinc-900/50",
-          file && "border-solid border-emerald-500/30 bg-emerald-500/5"
-        )}
+        className={[
+          "drop-zone bracket relative p-10 transition-all duration-200",
+          isDragActive ? "active" : "",
+          file ? "has-file" : "",
+        ].join(" ")}
       >
         <input {...getInputProps()} />
-        
-        <div className="flex flex-col items-center justify-center text-center space-y-4">
-          <div className="relative">
-            <div className={cn(
-              "p-4 bg-zinc-800 transition-transform duration-200",
-              isDragActive && "bg-emerald-900/30"
-            )}>
-              {file ? (
-                <FileVideo className="w-8 h-8 text-emerald-400" />
-              ) : (
-                <Upload className="w-8 h-8 text-zinc-500 group-hover:text-emerald-500 transition-colors" />
-              )}
-            </div>
-            {status === "success" && (
-              <div className="absolute -right-1 -top-1 bg-emerald-500 p-1">
-                <CheckCircle2 className="w-4 h-4 text-black" />
-              </div>
-            )}
-            {status === "error" && (
-              <div className="absolute -right-1 -top-1 bg-red-500 p-1">
-                <AlertCircle className="w-4 h-4 text-black" />
-              </div>
-            )}
-             {status === "processing" && (
-              <div className="absolute -right-1 -top-1 bg-blue-500 p-1">
-                <Loader2 className="w-4 h-4 text-black animate-spin" />
-              </div>
+
+        <div className="flex flex-col items-center text-center gap-5">
+
+          {/* Icon */}
+          <div
+            className="w-14 h-14 flex items-center justify-center border transition-colors"
+            style={{
+              borderColor: file ? "var(--green)" : "var(--border-2)",
+              background: file ? "rgba(10,232,124,0.10)" : "var(--surface-2)",
+            }}
+          >
+            {status === "processing" ? (
+              <svg className="animate-spin" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.5">
+                <path d="M21 12a9 9 0 11-6.219-8.56" />
+              </svg>
+            ) : status === "success" ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.5">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : status === "error" ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="1.5">
+                <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+            ) : file ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.5">
+                <rect x="2" y="2" width="20" height="20" /><path d="M8 10l4-4 4 4M12 6v9" /><path d="M6 18h12" />
+              </svg>
+            ) : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--text-dim)" }}>
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
             )}
           </div>
 
-          <div className="space-y-2">
-            <h3 className="text-lg font-semibold text-zinc-100 font-heading">
-              {file ? file.name : "Upload Match Footage"}
-            </h3>
-            <p className="text-sm text-zinc-500 max-w-xs mx-auto">
+          {/* Label */}
+          <div>
+            <p
+              className="font-display"
+              style={{ fontSize: "28px", color: file ? "var(--green)" : "var(--text)", letterSpacing: "0.05em" }}
+            >
+              {isDragActive ? "DROP TO ANALYSE" : file ? file.name.toUpperCase() : "DROP FOOTAGE HERE"}
+            </p>
+            <p className="font-mono mt-1" style={{ fontSize: "9px", color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
               {file
-                ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
-                : "Drag & drop your video here, or click to select"}
+                ? `${(file.size / (1024 * 1024)).toFixed(2)} MB · MP4 / MOV / AVI / MKV`
+                : "Click to select · MP4 · MOV · AVI · MKV"}
             </p>
           </div>
 
-          {file && status === 'idle' && (
-            <div className="flex gap-3 pt-4">
+          {/* Action */}
+          {file && status === "idle" && (
+            <div className="flex gap-2">
               <button
                 onClick={(e) => { e.stopPropagation(); uploadFile(); }}
-                className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold transition-all uppercase tracking-wide text-sm"
+                className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-opacity hover:opacity-75"
+                style={{ background: "var(--green)", color: "#07080F", fontWeight: 500, letterSpacing: "0.12em" }}
               >
-                Start Upload
+                ▸ ANALYSE MATCH
               </button>
               <button
                 onClick={removeFile}
-                className="p-2.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 transition-colors border border-zinc-700 hover:border-red-500/50"
+                className="font-mono text-[10px] uppercase tracking-widest px-3 py-2.5 border transition-colors hover:opacity-75"
+                style={{ borderColor: "var(--border-2)", color: "var(--text-dim)" }}
               >
-                <X className="w-5 h-5" />
+                ✕
               </button>
             </div>
           )}
 
+          {/* Upload progress */}
           {status === "uploading" && (
-            <div className="w-full max-w-xs space-y-2 pt-4">
-              <div className="h-1 bg-zinc-800 overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 transition-all duration-500 ease-out"
-                  style={{ width: `${uploadProgress}%` }}
-                />
+            <div style={{ width: "100%", maxWidth: "300px" }}>
+              <div className="flex justify-between mb-2">
+                <span className="font-mono" style={{ fontSize: "9px", color: "var(--green)", textTransform: "uppercase", letterSpacing: "0.12em" }}>UPLOADING</span>
+                <span className="font-mono" style={{ fontSize: "9px", color: "var(--green)" }}>{uploadProgress}%</span>
               </div>
-              <p className="text-xs text-zinc-400 animate-pulse uppercase tracking-wide">
-                Uploading... {uploadProgress}%
-              </p>
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${uploadProgress}%` }} />
+              </div>
             </div>
           )}
 
+          {/* Processing progress */}
           {status === "processing" && (
-             <div className="w-full max-w-xs space-y-2 pt-4">
-             <div className="h-1 bg-zinc-800 overflow-hidden">
-               <div
-                 className="h-full bg-blue-500 transition-all duration-300 ease-out"
-                 style={{ width: `${processingProgress}%` }}
-               />
-             </div>
-             <p className="text-xs text-blue-400 animate-pulse font-medium uppercase tracking-wide">
-               Analyzing Match... {processingProgress}%
-             </p>
-           </div>
+            <div style={{ width: "100%", maxWidth: "300px" }}>
+              <div className="flex justify-between mb-2">
+                <span className="font-mono animate-blink" style={{ fontSize: "9px", color: "var(--green)", textTransform: "uppercase", letterSpacing: "0.12em" }}>ANALYSING MATCH</span>
+                <span className="font-mono" style={{ fontSize: "9px", color: "var(--green)" }}>{processingProgress}%</span>
+              </div>
+              <div className="progress-track">
+                <div className="progress-fill progress-fill-green" style={{ width: `${processingProgress}%` }} />
+              </div>
+            </div>
           )}
 
+          {/* Success */}
           {status === "success" && (
-            <div className="pt-4 flex flex-col items-center gap-4">
-              <p className="text-emerald-400 font-semibold text-lg font-heading uppercase tracking-wide">Analysis Complete!</p>
+            <div className="flex flex-col items-center gap-3">
+              <p className="font-display" style={{ fontSize: "28px", color: "var(--green)", letterSpacing: "0.05em" }}>ANALYSIS COMPLETE</p>
               {matchId && (
                 <button
                   onClick={() => router.push(`/matches/${matchId}`)}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold transition-all text-sm uppercase tracking-wide"
+                  className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-opacity hover:opacity-75"
+                  style={{ background: "var(--green)", color: "#07080F", fontWeight: 500, letterSpacing: "0.12em" }}
                 >
-                  View Results <ArrowRight className="w-4 h-4" />
+                  VIEW RESULTS ▸
                 </button>
               )}
             </div>
+          )}
+
+          {/* Error */}
+          {status === "error" && (
+            <p className="font-mono" style={{ fontSize: "9px", color: "var(--red)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+              ✕ UPLOAD FAILED — TRY AGAIN
+            </p>
           )}
         </div>
       </div>

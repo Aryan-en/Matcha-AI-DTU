@@ -4,7 +4,7 @@ import requests
 import os
 import numpy as np
 import torch
-import time  # noqa: F401 (kept for potential sleep/rate-limit back-off)
+
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +20,60 @@ MUSIC_DIR = BASE_DIR / "app" / "music"  # services/inference/app/music/
 # Ensure directories exist
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+
+CONFIG = {
+    "VIDEO_SAMPLE_FPS": 1.0,
+    "VIDEO_PROCESS_FPS": 1.0,
+    "MOTION_WINDOW_SECS": 5.0,
+    "TARGET_FRAME_HEIGHT": 480,
+    "MAX_FRAME_WIDTH": 800,
+    "YOLO_DOWNSCALE_HEIGHT": 480,
+    "MOTION_PEAK_THRESHOLD": 0.45,
+    "MOTION_FALLBACK_THRESHOLD": 0.55,
+    "MOTION_MIN_GAP_SECS": 20.0,
+    "MOTION_FALLBACK_MIN_GAP": 20.0,
+    "CANDIDATE_MIN_MOTION": 0.65,
+    "MAX_MOTION_BASED_EVENTS": 8,
+    "HIGHLIGHT_CLIP_DURATION": 30.0,
+    "HIGHLIGHT_CLIP_PRE_PCT": 0.35,
+    "HIGHLIGHT_CLIP_POST_PCT": 0.65,
+    "HIGHLIGHT_COUNT": 5,
+    "HIGHLIGHT_MIN_SPREAD_PCT": 0.15,
+    "AUDIO_PEAK_PERCENTILE": 90,
+    "AUDIO_MOTION_DIVISOR": 40.0,
+    "VISION_FAILURE_THRESHOLD": 5,
+    "YOLO_SKIP_MOTION_THRESHOLD": 0.15,
+    "YOLO_SKIP_MOTION_INTERVAL": 3,
+    "LATE_GAME_PCT": 0.85,
+    "EARLY_GAME_PCT": 0.08,
+    "FRAME_STEP_FOR_1FPS": 30,
+    "COMPRESS_SIZE_THRESHOLD_MB": 100,
+    "COMPRESS_OUTPUT_HEIGHT": 480,
+    "COMPRESS_OUTPUT_FPS": 1,
+    "FFMPEG_CLIP_TIMEOUT": 120,
+    "FFMPEG_CONCAT_TIMEOUT": 60,
+    "FFMPEG_COMPRESS_TIMEOUT": 300,
+    "MAX_SUMMARY_CHARS": 5000,
+    "MAX_COMMENTARY_CHARS": 1000,
+    "MAX_HIGHLIGHT_COMMENTARY_CHARS": 500,
+    "MAX_EVENTTYPE_CHARS": 50,
+    # ── Goal Detection Parameters ─────────────────────────────────────────
+    "GOAL_DETECTION_ENABLED": True,
+    "GOAL_DETECTION_MIN_FRAMES": 3,  # Frames ball must be in goal area
+    "GOAL_DETECTION_MIN_SIZE": 10,  # Min ball bbox size in pixels
+    "GOAL_DETECTION_MAX_SIZE": 200,  # Max ball bbox size in pixels
+    "GOAL_DETECTION_CONFIDENCE_THRESHOLD": 0.5,  # Goal confidence threshold
+}
+
+# ── Goal Detection (vision-based goal line crossing) ──────────────────────────
+try:
+    from app.core.goal_detection import GoalDetectionEngine
+    GOAL_DETECTION_AVAILABLE = True
+    logger.info("Goal Detection engine loaded ✓")
+except ImportError as e:
+    logger.warning(f"Goal Detection not available: {e}")
+    GOAL_DETECTION_AVAILABLE = False
+    GoalDetectionEngine = None
 
 # ── SoccerNet (football-specific event detection) ────────────────────────────
 try:
@@ -58,7 +112,9 @@ except Exception as e:
     from ultralytics import YOLO
 
 # ── Gemini (used only for NLP: commentary text generation & match summary) ───
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAWq9B778lXO927aZcjvWNMpuM4sSC0gaM")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    logger.warning("GEMINI_API_KEY not set — Gemini features will be unavailable")
 _gemini_model = None
 _gemini_vision_model = None
 
@@ -66,6 +122,10 @@ _gemini_vision_model = None
 def _get_gemini():
     global _gemini_model
     if _gemini_model is None:
+        if not GEMINI_API_KEY:
+            logger.warning("Gemini API key not configured")
+            _gemini_model = False
+            return None
         try:
             import google.generativeai as genai
             genai.configure(api_key=GEMINI_API_KEY)
@@ -81,6 +141,10 @@ def _get_gemini_vision():
     """Get Gemini model configured for vision tasks."""
     global _gemini_vision_model
     if _gemini_vision_model is None:
+        if not GEMINI_API_KEY:
+            logger.warning("Gemini API key not configured")
+            _gemini_vision_model = False
+            return None
         try:
             import google.generativeai as genai
             genai.configure(api_key=GEMINI_API_KEY)
@@ -295,20 +359,24 @@ def validate_candidate_with_fallback(cap, timestamp: float, fps: float, duration
     return result
 
 
-def find_motion_peaks(motion_windows: list, threshold: float = 0.45, min_gap: float = 10.0) -> list:
-    """
-    Find timestamps where motion score peaks above threshold.
-    These are candidate moments for potential highlights.
-    
-    Returns: List of timestamps (seconds) worth investigating.
-    """
-    if not motion_windows:
+def find_motion_peaks(motion_windows: list, threshold: float = None, min_gap: float = None) -> list:
+    if threshold is None:
+        threshold = CONFIG["MOTION_PEAK_THRESHOLD"]
+    if min_gap is None:
+        min_gap = CONFIG["MOTION_MIN_GAP_SECS"]
+        
+    if not isinstance(motion_windows, list) or not motion_windows:
         return []
+    if threshold < 0 or threshold > 1:
+        logger.warning(f"Invalid threshold {threshold}, using default")
+        threshold = CONFIG["MOTION_PEAK_THRESHOLD"]
     
     candidates = []
     last_peak = -999
     
     for w in motion_windows:
+        if not isinstance(w, dict) or "motionScore" not in w or "timestamp" not in w:
+            continue
         if w["motionScore"] >= threshold:
             t = w["timestamp"]
             if t - last_peak >= min_gap:
@@ -318,57 +386,53 @@ def find_motion_peaks(motion_windows: list, threshold: float = 0.45, min_gap: fl
     return candidates
 
 
-# ── Piper TTS (high-quality local TTS) ────────────────────────────────────────
-_tts_voice = None
-_piper_model_path = None
+# ── FFmpeg helpers ───────────────────────────────────────────────────────────
+def _generate_silent_audio(output_path: str, duration: float = 10.0) -> bool:
+    """Generate silent stereo MP3 audio using FFmpeg."""
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:d={duration}",
+            "-t", str(duration), "-q:a", "9", "-acodec", "libmp3lame",
+            output_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            logger.warning(f"FFmpeg silent audio generation failed: {result.stderr.decode('utf-8', errors='ignore')[:200]}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Failed to generate silent audio: {e}")
+        return False
+
+
+# ── edge-tts (Microsoft neural TTS — no API key, Python 3.14 compatible) ──────
+_EDGE_TTS_VOICE = "en-US-AriaNeural"   # natural female sports commentator voice
 
 def _get_tts():
-    """Initialize Piper TTS voice."""
-    global _tts_voice, _piper_model_path
-    if _tts_voice is None:
-        try:
-            from piper import PiperVoice
-            import urllib.request
-            import shutil
-            
-            # Download voice model if not present
-            models_dir = BASE_DIR / "models"
-            models_dir.mkdir(exist_ok=True)
-            model_path = models_dir / "en_US-lessac-medium.onnx"
-            config_path = models_dir / "en_US-lessac-medium.onnx.json"
-            
-            if not model_path.exists():
-                logger.info("Downloading Piper TTS voice model...")
-                model_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
-                config_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
-                urllib.request.urlretrieve(model_url, model_path)
-                urllib.request.urlretrieve(config_url, config_path)
-                logger.info("Piper TTS model downloaded ✓")
-            
-            _tts_voice = PiperVoice.load(str(model_path), str(config_path))
-            _piper_model_path = model_path
-            logger.info("Piper TTS loaded ✓")
-        except Exception as e:
-            logger.error(f"Piper TTS initialization failed: {e}")
-            _tts_voice = False
-    return _tts_voice if _tts_voice else None
+    """Check edge-tts is importable."""
+    try:
+        import edge_tts  # type: ignore   # noqa: F401
+        return True
+    except Exception as e:
+        logger.error(f"edge-tts not available: {e}")
+        return False
 
 
 def tts_generate(text: str, output_path: str) -> bool:
-    """Generate TTS audio using Piper TTS."""
-    voice = _get_tts()
-    if not voice:
+    """Generate TTS audio using Microsoft edge-tts neural voice."""
+    if not _get_tts():
         return False
-    
     try:
-        import wave
-        # Piper outputs raw 16-bit mono audio at 22050 Hz
-        # We need to configure the WAV file BEFORE calling synthesize
-        with wave.open(output_path, "wb") as wav_file:
-            wav_file.setnchannels(1)  # Mono
-            wav_file.setsampwidth(2)  # 16-bit
-            wav_file.setframerate(22050)  # Piper's default sample rate
-            voice.synthesize(text, wav_file)
+        import asyncio
+        import edge_tts  # type: ignore
+
+        async def _synth():
+            communicate = edge_tts.Communicate(text, _EDGE_TTS_VOICE)
+            await communicate.save(output_path)
+
+        asyncio.run(_synth())
+        logger.info(f"edge-tts generated: {output_path}")
         return True
     except Exception as e:
         logger.error(f"TTS generation failed: {e}")
@@ -387,9 +451,11 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
     # Ensure dummy audio files exist if not mounted
     if not os.path.exists(music_path):
         os.makedirs(os.path.dirname(music_path), exist_ok=True)
-        subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", "10", "-q:a", "9", "-acodec", "libmp3lame", music_path, "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not _generate_silent_audio(music_path, duration=10.0):
+            logger.warning(f"Could not generate music file at {music_path}")
     if not os.path.exists(crowd_path):
-        subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", "10", "-q:a", "9", "-acodec", "libmp3lame", crowd_path, "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not _generate_silent_audio(crowd_path, duration=10.0):
+            logger.warning(f"Could not generate crowd audio file at {crowd_path}")
 
     for i, h in enumerate(highlights):
         start = h["startTime"]
@@ -409,14 +475,18 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
         # Video: drawtext scrolling right to left, fade in, fade out
         v_filter = f"[0:v]drawtext=text='Matcha AI Broadcast - {event_type}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.6:boxborderw=5:x=w-mod(t*150\\,w+tw):y=40,fade=t=in:st=0:d=1,fade=t=out:st={duration-1}:d=1[v];"
         
-        # Check if video has audio
+        # Check if video has audio (skip if ffprobe unavailable)
         has_video_audio = False
         try:
+            # Validate ffprobe is available
+            subprocess.run(["ffprobe", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2)
             probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "default=nw=1:nk=1", video_path]
-            probe_out = subprocess.check_output(probe_cmd).decode("utf-8").strip()
+            probe_out = subprocess.check_output(probe_cmd, timeout=5).decode("utf-8").strip()
             has_video_audio = "audio" in probe_out
-        except Exception:
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            logger.debug("ffprobe unavailable, assuming no audio")
+        except Exception as e:
+            logger.debug(f"Audio detection failed: {e}")
 
         # Build ffmpeg command inputs
         cmd = [
@@ -467,10 +537,16 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
         ])
         
         try:
-            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-            temp_clips.append(clip_path)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"FFmpeg clip {i} failed: {e.stderr.decode('utf-8', errors='ignore')}")
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            if result.returncode == 0:
+                temp_clips.append(clip_path)
+            else:
+                stderr_msg = result.stderr.decode('utf-8', errors='ignore')[:300]
+                logger.error(f"FFmpeg clip {i} failed (code {result.returncode}): {stderr_msg}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"FFmpeg clip {i} timeout after 120s")
+        except Exception as e:
+            logger.error(f"FFmpeg clip {i} error: {e}")
             
         if has_audio and os.path.exists(audio_path):
             os.remove(audio_path)
@@ -493,9 +569,17 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
     ]
     
     try:
-        subprocess.run(concat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg concat failed: {e.stderr.decode('utf-8', errors='ignore')}")
+        result = subprocess.run(concat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        if result.returncode != 0:
+            stderr_msg = result.stderr.decode('utf-8', errors='ignore')[:300]
+            logger.error(f"FFmpeg concat failed (code {result.returncode}): {stderr_msg}")
+            return None
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg concat timeout after 60s")
+        return None
+    except Exception as e:
+        logger.error(f"FFmpeg concat error: {e}")
+        return None
         
     # Cleanup temp files
     for clip in temp_clips:
@@ -552,8 +636,7 @@ EVENT_WEIGHTS = {
     "YELLOW_CARD":   7.0,
     "CELEBRATION":   6.5,   # Vision AI detected celebration
     "FOUL":          6.0,
-    "Celebrate":     5.5,   # Legacy
-    "HIGHLIGHT":     5.5,   # Fallback generic highlight
+    "HIGHLIGHT":     5.5,   # Fallback generic highlight from motion
     "TACKLE":        5.0,
     "CORNER":        4.0,
     "OFFSIDE":       2.5,
@@ -594,7 +677,6 @@ _FALLBACK = {
     "TACKLE":      {"high": "FEROCIOUS TACKLE! Incredible commitment!", "mid": "Strong challenge wins the ball back.", "low": "Tackle wins possession."},
     "FOUL":        {"high": "DEFINITE FOUL! Referee steps in immediately!", "mid": "Free kick awarded — bodies flying here.", "low": "Foul given."},
     "SAVE":        {"high": "UNBELIEVABLE SAVE! Superhuman goalkeeping!", "mid": "Good stop from the keeper — keeping them in it.", "low": "Save made."},
-    "Celebrate":   {"high": "The players ERUPT in pure celebration — absolute scenes!", "mid": "Wild celebrations on the pitch!", "low": "Players celebrate."},
     "CELEBRATION": {"high": "INCREDIBLE SCENES! The players are losing their minds!", "mid": "Celebrations break out on the pitch!", "low": "The players celebrate."},
     "HIGHLIGHT":   {"high": "WHAT A MOMENT! Crucial action in this match!", "mid": "Important moment of play here.", "low": "Key moment of play."},
 }
@@ -822,15 +904,16 @@ def emit_live_event(match_id: str, event: dict):
 
 
 def _precompress_video(video_path: str, match_id: str) -> str:
-    """
-    Pre-compress large videos using FFmpeg for faster analysis.
-    Returns path to compressed video, or original if compression fails/not needed.
-    """
+    if not video_path or not isinstance(video_path, str):
+        raise ValueError("Invalid video_path")
+    if not match_id or not isinstance(match_id, str):
+        raise ValueError("Invalid match_id")
+        
     try:
         file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+        threshold_mb = CONFIG["COMPRESS_SIZE_THRESHOLD_MB"]
         
-        # Only compress if > 100MB
-        if file_size_mb < 100:
+        if file_size_mb < threshold_mb:
             return video_path
             
         logger.info(f"Pre-compressing video ({file_size_mb:.0f}MB) for faster analysis...")
@@ -838,61 +921,115 @@ def _precompress_video(video_path: str, match_id: str) -> str:
         output_dir = Path(video_path).parent
         compressed_path = str(output_dir / f"compressed_{match_id}.mp4")
         
-        # FFmpeg: scale to 480p, 1fps output (we only need 1fps for analysis anyway)
-        # CRF 28 = good quality, ultrafast preset
         cmd = [
             "ffmpeg", "-y", "-i", video_path,
-            "-vf", "scale=-2:480,fps=1",
+            "-vf", f"scale=-2:{CONFIG['COMPRESS_OUTPUT_HEIGHT']},fps={CONFIG['COMPRESS_OUTPUT_FPS']}",
             "-c:v", "libx264", "-crf", "28", "-preset", "ultrafast",
-            "-an",  # No audio needed for analysis
+            "-an",
             compressed_path
         ]
         
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=CONFIG["FFMPEG_COMPRESS_TIMEOUT"])
         
         if result.returncode == 0 and os.path.exists(compressed_path):
             compressed_size = os.path.getsize(compressed_path) / (1024 * 1024)
-            logger.info(f"Compressed: {file_size_mb:.0f}MB → {compressed_size:.0f}MB ({100-compressed_size/file_size_mb*100:.0f}% reduction)")
+            reduction_pct = 100 - (compressed_size / file_size_mb * 100) if file_size_mb > 0 else 0
+            logger.info(f"Compressed: {file_size_mb:.0f}MB → {compressed_size:.0f}MB ({reduction_pct:.0f}% reduction)")
             return compressed_path
         else:
             logger.warning(f"FFmpeg compression failed, using original")
             return video_path
             
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Pre-compression timeout, using original")
+        return video_path
     except Exception as e:
         logger.warning(f"Pre-compression failed: {e}")
         return video_path
 
 
+# ── Goal Detection Pipeline ────────────────────────────────────────────────────
+def detect_goals_in_video(video_path: str) -> list:
+    """
+    Detect goals in video using vision-based goal-line crossing detection.
+    Returns list of goal events: [{"timestamp": float, "type": "GOAL", ...}]
+    """
+    if not GOAL_DETECTION_AVAILABLE or not GoalDetectionEngine:
+        return []
+    
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            logger.warning(f"Cannot open video for goal detection: {video_path}")
+            return []
+        
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # Initialize goal detector
+        goal_engine = GoalDetectionEngine()
+        goal_engine.init(frame_width, frame_height, fps)
+        
+        logger.info(f"Goal detection: {frame_width}×{frame_height} @ {fps:.1f}fps")
+        
+        goals_detected = []
+        frame_idx = 0
+        
+        # Process every Nth frame to speed up (goal detection doesn't need every frame)
+        frame_step = max(1, int(fps / 5.0))  # Process at ~5 FPS
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            frame_idx += 1
+            
+            # Skip frames
+            if frame_idx % frame_step != 0:
+                continue
+            
+            # Resize for faster processing if very large
+            if frame.shape[1] > 1280:
+                scale = 1280 / frame.shape[1]
+                frame = cv2.resize(frame, (1280, int(frame.shape[0] * scale)))
+            
+            # Process frame
+            goal_event = goal_engine.process_frame(frame)
+            
+            if goal_event:
+                goals_detected.append({
+                    "timestamp": round(goal_event.timestamp, 2),
+                    "type": "GOAL",
+                    "confidence": round(goal_event.confidence, 3),
+                    "description": f"Goal detected ({goal_event.direction})",
+                    "source": "goal_detection"
+                })
+                logger.info(f"⚽ GOAL at {goal_event.timestamp:.1f}s | confidence: {goal_event.confidence:.2f}")
+        
+        cap.release()
+        
+        logger.info(f"Goal detection completed: {len(goals_detected)} goals found")
+        return goals_detected
+        
+    except Exception as e:
+        logger.error(f"Goal detection failed: {e}")
+        return []
+
+
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 def analyze_video(video_path: str, match_id: str):
-    """
-    Full AI analysis pipeline.
-
-    HOW IT WORKS
-    ============
-    1. Open video with OpenCV.  Sample 1 frame/sec for detection, 0.5 fps for
-       tracking data (canvas overlay on frontend).
-    2. Motion windows: compare adjacent frames (5-second rolling windows) to
-       produce a motionScore proxy for crowd noise / game intensity.
-    3. YOLO tracking (model.track with persist=True gives stable object IDs):
-         sports ball  → GOAL event candidate
-         person       → TACKLE candidate (ONLY if motionScore > 0.35)
-    4. Per-type minimum gap enforcement (MODEL_MIN_GAP) — the KEY fix for
-       repetitive clips.  "person" is in every frame, so we enforce a 45-second
-       silence before a second TACKLE is accepted.
-    5. Each accepted event is IMMEDIATELY POSTed to /matches/:id/live-event so
-       NestJS can WebSocket-emit it to the browser.  The page updates in real-
-       time as detection runs.
-    6. After the full scan: score events, generate Gemini commentary, pick
-       top-5 spread highlights, build Gemini match summary, package tracking data.
-    7. POST everything to /matches/:id/complete.
-
-    TRACKING DATA FORMAT (stored as JSON in the DB)
-    ================================================
-    Array of { t: float, b: [[x,y,w,h,conf], …], p: [[x,y,w,h,id], …] }
-    where all coordinates are NORMALISED 0-1 relative to frame dimensions.
-    The frontend canvas overlay reads these and redraws on every timeupdate.
-    """
+    if not video_path or not os.path.exists(video_path):
+        logger.error(f"Video file not found: {video_path}")
+        _report_failure(match_id)
+        return {"error": "Video file not found"}
+    
+    if not match_id or not isinstance(match_id, str):
+        logger.error("Invalid match_id")
+        return {"error": "Invalid match_id"}
+        
     logger.info(f"Starting analysis: match={match_id}")
     
     # Pre-compress large videos for faster processing
@@ -915,18 +1052,15 @@ def analyze_video(video_path: str, match_id: str):
         
         # If we pre-compressed to 1fps, adjust settings
         if compressed:
-            process_fps = fps  # Already 1fps from compression
+            process_fps = fps
             frame_step = 1
         else:
-            # Sample only 1 frame per second for uncompressed
-            process_fps = 1.0
+            process_fps = CONFIG["VIDEO_PROCESS_FPS"]
             frame_step = max(1, int(fps / process_fps))
             
-        track_interval = 1  # Save tracking data every processed frame
-        window_frames  = max(1, int(process_fps * 5.0)) # 5 seconds of motion
-        
-        # Target resolution for YOLO - downscale large videos for speed
-        target_height = 480 if frame_h > 720 else frame_h
+        track_interval = 1
+        window_frames = max(1, int(process_fps * CONFIG["MOTION_WINDOW_SECS"]))
+        target_height = CONFIG["YOLO_DOWNSCALE_HEIGHT"] if frame_h > 720 else frame_h
 
         logger.info(f"Video: {total_frames}f @ {fps:.1f}fps = {duration:.1f}s [{frame_w}×{frame_h}] → {target_height}p @ {process_fps}fps")
 
@@ -939,6 +1073,17 @@ def analyze_video(video_path: str, match_id: str):
         track_frames:   list = []
         jersey_colours: list = []   # [[R,G,B], ...] one per sampled person crop
         frame_person_rows: list = []  # parallel to track_frames, raw persons before team assignment
+
+        # ── GoalDetectionEngine (Kalman + Homography + FSM) ───────────────────────
+        _goal_engine = None
+        if GOAL_DETECTION_AVAILABLE and GoalDetectionEngine:
+            try:
+                _goal_engine = GoalDetectionEngine()
+                _goal_engine.init(frame_w, frame_h, fps)
+                logger.info("GoalDetectionEngine initialised ✓")
+            except Exception as _ge:
+                logger.warning(f"GoalDetectionEngine init failed: {_ge}")
+                _goal_engine = None
 
         # NOTE: raw_events and last_seen are no longer used here
         # Events are now detected via Vision AI after the main loop
@@ -995,9 +1140,8 @@ def analyze_video(video_path: str, match_id: str):
             # ── YOLO detection & tracking ────────────────────────────────────
             current_motion = _get_motion_at(motion_windows, timestamp) if motion_windows else 0.3
             
-            # OPTIMIZATION: Skip YOLO on very static scenes (halftime, replays, etc)
-            # Run YOLO only every 3rd frame if motion < 0.15
-            skip_yolo = current_motion < 0.15 and processed_count % 3 != 0
+            # OPTIMIZATION: Skip YOLO on very static scenes
+            skip_yolo = current_motion < CONFIG["YOLO_SKIP_MOTION_THRESHOLD"] and processed_count % CONFIG["YOLO_SKIP_MOTION_INTERVAL"] != 0
             
             frame_balls:   list = []
             frame_persons: list = []
@@ -1010,9 +1154,10 @@ def analyze_video(video_path: str, match_id: str):
                     yolo_frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
 
                 try:
-                    results = model.track(yolo_frame, persist=True, verbose=False)
-                except Exception:
                     results = model(yolo_frame, verbose=False)
+                except Exception as e:
+                    logger.warning(f"YOLO inference failed: {e}")
+                    results = []
 
                 # Scale factor for converting YOLO coords back to original frame size
                 scale_factor = frame.shape[0] / yolo_frame.shape[0] if frame.shape[0] != yolo_frame.shape[0] else 1.0
@@ -1054,6 +1199,13 @@ def analyze_video(video_path: str, match_id: str):
                         # NOTE: We no longer create events from YOLO detections
                         # Events are now detected using Gemini Vision analysis
                         # YOLO is only used for ball/player tracking visualization
+
+            # ── GoalDetectionEngine per-frame ────────────────────────────────────
+            if _goal_engine is not None:
+                try:
+                    _goal_engine.process_frame(frame)
+                except Exception as _gfe:
+                    logger.debug(f"goal_engine.process_frame error: {_gfe}")
 
             # Store tracking frame on every detection tick (max every track_interval)
             if (processed_count % track_interval == 0) and (frame_balls or frame_persons):
@@ -1113,6 +1265,14 @@ def analyze_video(video_path: str, match_id: str):
         
         raw_events = []
         
+        # Add goals from GoalDetectionEngine (Kalman + Homography + FSM)
+        if _goal_engine is not None:
+            from app.core.goal_detection import goal_events_to_raw
+            _raw_goals = goal_events_to_raw(_goal_engine.goals)
+            if _raw_goals:
+                logger.info(f"GoalDetectionEngine found {len(_raw_goals)} goal(s)")
+                raw_events.extend(_raw_goals)
+        
         # Primary: Use SoccerNet (trained on football footage)
         if SOCCERNET_AVAILABLE and detect_football_events:
             try:
@@ -1142,8 +1302,8 @@ def analyze_video(video_path: str, match_id: str):
             # Find high-motion peaks as generic highlights
             candidate_timestamps = find_motion_peaks(
                 motion_windows, 
-                threshold=0.5,   # Higher threshold for fallback
-                min_gap=20.0     # At least 20s between candidates
+                threshold=CONFIG["MOTION_FALLBACK_THRESHOLD"],
+                min_gap=CONFIG["MOTION_FALLBACK_MIN_GAP"]
             )
             
             # Filter out timestamps that are too close to existing events
@@ -1156,7 +1316,7 @@ def analyze_video(video_path: str, match_id: str):
                 motion_score = _get_motion_at(motion_windows, candidate_t) if motion_windows else 0.5
                 
                 # Only add very high motion moments as generic highlights
-                if motion_score >= 0.55:
+                if motion_score >= CONFIG["MOTION_FALLBACK_THRESHOLD"]:
                     raw_events.append({
                         "timestamp": round(candidate_t, 2),
                         "type": "HIGHLIGHT",
@@ -1166,7 +1326,7 @@ def analyze_video(video_path: str, match_id: str):
                     })
                     existing_times.add(candidate_t)
                     
-                    if len(raw_events) >= 8:  # Cap at 8 total events
+                    if len(raw_events) >= CONFIG["MAX_MOTION_BASED_EVENTS"]:  # Cap at 8 total events
                         break
                         
             logger.info(f"Total events after fallback: {len(raw_events)}")
