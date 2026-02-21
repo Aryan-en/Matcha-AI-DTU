@@ -60,9 +60,9 @@ CONFIG = {
     # ── Goal Detection Parameters ─────────────────────────────────────────
     "GOAL_DETECTION_ENABLED": True,
     "GOAL_DETECTION_MIN_FRAMES": 3,  # Frames ball must be in goal area
-    "GOAL_DETECTION_MIN_SIZE": 10,  # Min ball bbox size in pixels
+    "GOAL_DETECTION_MIN_SIZE": 4,  # Min ball bbox size in pixels
     "GOAL_DETECTION_MAX_SIZE": 200,  # Max ball bbox size in pixels
-    "GOAL_DETECTION_CONFIDENCE_THRESHOLD": 0.5,  # Goal confidence threshold
+    "GOAL_DETECTION_CONFIDENCE_THRESHOLD": 0.35,  # Goal confidence threshold
 }
 
 # ── Goal Detection (vision-based goal line crossing) ──────────────────────────
@@ -177,7 +177,7 @@ def analyze_frame_with_vision(frame, timestamp: float, context: str = "") -> dic
     try:
         pil_image = _frame_to_pil(frame)
         
-        prompt = """Analyze this football/soccer video frame. Determine if a significant game event is happening.
+        prompt = """Analyze this football/soccer video frame (Note: this may be a wide-angle tactical camera view, so players and the ball may appear very small). Determine if a significant game event is happening.
 
 IMPORTANT: Be STRICT. Only classify as an event if you're confident it's actually happening in this frame.
 
@@ -1316,17 +1316,20 @@ def analyze_video(video_path: str, match_id: str):
                 motion_score = _get_motion_at(motion_windows, candidate_t) if motion_windows else 0.5
                 
                 # Only add very high motion moments as generic highlights
-                if motion_score >= CONFIG["MOTION_FALLBACK_THRESHOLD"]:
+                # Validate the motion peak with Gemini Vision AI instead of blindly accepting it
+                # Tactical cameras cause massive motion spikes during pans. Vision AI will reject these as "NONE".
+                val_result = validate_candidate_with_fallback(cap, candidate_t, fps, duration, motion_score)
+                if val_result and val_result["event_type"] != "NONE":
                     raw_events.append({
-                        "timestamp": round(candidate_t, 2),
-                        "type": "HIGHLIGHT",
-                        "confidence": round(min(0.7, motion_score), 3),
-                        "description": "High-action moment",
-                        "source": "motion_fallback"
+                        "timestamp": val_result["timestamp"],
+                        "type": val_result["event_type"],
+                        "confidence": val_result["confidence"],
+                        "description": val_result["description"],
+                        "source": "vision_ai_fallback"
                     })
                     existing_times.add(candidate_t)
                     
-                    if len(raw_events) >= CONFIG["MAX_MOTION_BASED_EVENTS"]:  # Cap at 8 total events
+                    if len(raw_events) >= CONFIG["MAX_MOTION_BASED_EVENTS"]:  # Cap total events
                         break
                         
             logger.info(f"Total events after fallback: {len(raw_events)}")

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { Upload, FileVideo, X, CheckCircle2, AlertCircle, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { io, Socket } from "socket.io-client";
 
-export function VideoUpload() {
+export const VideoUpload = React.memo(function VideoUploadContent() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -141,10 +141,11 @@ export function VideoUpload() {
       <div
         {...getRootProps()}
         className={[
-          "drop-zone bracket relative p-10 transition-all duration-200",
+          "drop-zone bracket relative p-10 transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
           isDragActive ? "active" : "",
           file ? "has-file" : "",
         ].join(" ")}
+        aria-label="Upload tactical Match video"
       >
         <input {...getInputProps()} />
 
@@ -152,30 +153,26 @@ export function VideoUpload() {
 
           {/* Icon */}
           <div
-            className="w-14 h-14 flex items-center justify-center border transition-colors"
-            style={{
-              borderColor: file ? "var(--green)" : "var(--border-2)",
-              background: file ? "rgba(10,232,124,0.10)" : "var(--surface-2)",
-            }}
+            className={`size-14 flex items-center justify-center border transition-colors ${file ? 'border-primary bg-primary/10' : 'border-border-2 bg-muted'}`}
           >
             {status === "processing" ? (
-              <svg className="animate-spin" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.5">
+              <svg className="animate-spin size-5.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M21 12a9 9 0 11-6.219-8.56" />
               </svg>
             ) : status === "success" ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.5">
+              <svg className="size-5.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             ) : status === "error" ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="1.5">
+              <svg className="size-5.5 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
               </svg>
             ) : file ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.5">
+              <svg className="size-5.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <rect x="2" y="2" width="20" height="20" /><path d="M8 10l4-4 4 4M12 6v9" /><path d="M6 18h12" />
               </svg>
             ) : (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--text-dim)" }}>
+              <svg className="size-5.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                 <polyline points="17 8 12 3 7 8" />
                 <line x1="12" y1="3" x2="12" y2="15" />
@@ -185,13 +182,10 @@ export function VideoUpload() {
 
           {/* Label */}
           <div>
-            <p
-              className="font-display"
-              style={{ fontSize: "28px", color: file ? "var(--green)" : "var(--text)", letterSpacing: "0.05em" }}
-            >
+            <p className={`font-display text-[28px] tracking-[0.05em] ${file ? 'text-primary' : 'text-foreground'}`}>
               {isDragActive ? "DROP TO ANALYSE" : file ? file.name.toUpperCase() : "DROP FOOTAGE HERE"}
             </p>
-            <p className="font-mono mt-1" style={{ fontSize: "9px", color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+            <p className="font-mono mt-1 text-[9px] text-muted-foreground uppercase tracking-[0.12em]">
               {file
                 ? `${(file.size / (1024 * 1024)).toFixed(2)} MB · MP4 / MOV / AVI / MKV`
                 : "Click to select · MP4 · MOV · AVI · MKV"}
@@ -203,15 +197,15 @@ export function VideoUpload() {
             <div className="flex gap-2">
               <button
                 onClick={(e) => { e.stopPropagation(); uploadFile(); }}
-                className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-opacity hover:opacity-75"
-                style={{ background: "var(--green)", color: "#07080F", fontWeight: 500, letterSpacing: "0.12em" }}
+                className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-colors duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium"
+                aria-label="Analyze Match"
               >
                 ▸ ANALYSE MATCH
               </button>
               <button
                 onClick={removeFile}
-                className="font-mono text-[10px] uppercase tracking-widest px-3 py-2.5 border transition-colors hover:opacity-75"
-                style={{ borderColor: "var(--border-2)", color: "var(--text-dim)" }}
+                className="font-mono text-[10px] uppercase tracking-widest px-3 py-2.5 border border-border-2 text-muted-foreground transition-colors duration-200 hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-border-2 cursor-pointer"
+                aria-label="Remove File"
               >
                 ✕
               </button>
@@ -220,26 +214,26 @@ export function VideoUpload() {
 
           {/* Upload progress */}
           {status === "uploading" && (
-            <div style={{ width: "100%", maxWidth: "300px" }}>
+            <div className="w-full max-w-[300px]">
               <div className="flex justify-between mb-2">
-                <span className="font-mono" style={{ fontSize: "9px", color: "var(--green)", textTransform: "uppercase", letterSpacing: "0.12em" }}>UPLOADING</span>
-                <span className="font-mono" style={{ fontSize: "9px", color: "var(--green)" }}>{uploadProgress}%</span>
+                <span className="font-mono text-[9px] text-primary uppercase tracking-[0.12em]">UPLOADING</span>
+                <span className="font-mono text-[9px] text-primary">{uploadProgress}%</span>
               </div>
-              <div className="progress-track">
-                <div className="progress-fill" style={{ width: `${uploadProgress}%` }} />
+              <div className="h-0.5 bg-border overflow-hidden">
+                <div className="h-full bg-primary transition-[width] duration-300 ease-out" style={{ width: `${uploadProgress}%` }} />
               </div>
             </div>
           )}
 
           {/* Processing progress */}
           {status === "processing" && (
-            <div style={{ width: "100%", maxWidth: "300px" }}>
+            <div className="w-full max-w-[300px]">
               <div className="flex justify-between mb-2">
-                <span className="font-mono animate-blink" style={{ fontSize: "9px", color: "var(--green)", textTransform: "uppercase", letterSpacing: "0.12em" }}>ANALYSING MATCH</span>
-                <span className="font-mono" style={{ fontSize: "9px", color: "var(--green)" }}>{processingProgress}%</span>
+                <span className="font-mono text-[9px] text-primary uppercase tracking-[0.12em] animate-blink">ANALYSING MATCH</span>
+                <span className="font-mono text-[9px] text-primary">{processingProgress}%</span>
               </div>
-              <div className="progress-track">
-                <div className="progress-fill progress-fill-green" style={{ width: `${processingProgress}%` }} />
+              <div className="h-0.5 bg-border overflow-hidden">
+                <div className="h-full bg-primary transition-[width] duration-300 ease-out" style={{ width: `${processingProgress}%` }} />
               </div>
             </div>
           )}
@@ -247,12 +241,11 @@ export function VideoUpload() {
           {/* Success */}
           {status === "success" && (
             <div className="flex flex-col items-center gap-3">
-              <p className="font-display" style={{ fontSize: "28px", color: "var(--green)", letterSpacing: "0.05em" }}>ANALYSIS COMPLETE</p>
+              <p className="font-display text-[28px] text-primary tracking-[0.05em]">ANALYSIS COMPLETE</p>
               {matchId && (
                 <button
                   onClick={() => router.push(`/matches/${matchId}`)}
-                  className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-opacity hover:opacity-75"
-                  style={{ background: "var(--green)", color: "#07080F", fontWeight: 500, letterSpacing: "0.12em" }}
+                  className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-opacity hover:opacity-75 bg-primary text-[#07080F] font-medium"
                 >
                   VIEW RESULTS ▸
                 </button>
@@ -262,7 +255,7 @@ export function VideoUpload() {
 
           {/* Error */}
           {status === "error" && (
-            <p className="font-mono" style={{ fontSize: "9px", color: "var(--red)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+            <p className="font-mono text-[9px] text-destructive uppercase tracking-[0.12em]">
               ✕ UPLOAD FAILED — TRY AGAIN
             </p>
           )}
@@ -270,4 +263,4 @@ export function VideoUpload() {
       </div>
     </div>
   );
-}
+});

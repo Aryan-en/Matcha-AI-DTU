@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 
 class Cfg:
-    YOLO_CONF             = 0.25
-    BALL_MIN_PX           = 8
+    YOLO_CONF             = 0.15
+    BALL_MIN_PX           = 4
     BALL_MAX_PX           = 180
     BALL_ASPECT_MAX       = 2.5
     KALMAN_PROCESS_NOISE  = 1e-2
