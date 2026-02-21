@@ -10,24 +10,41 @@ This is a **monorepo** built with Next.js, NestJS, and FastAPI, orchestrated wit
 
 The system is broken down into three main applications:
 
-```text
-┌─────────────┐     ┌──────────────┐     ┌───────────────┐
-│   Next.js   │────▶│   NestJS     │────▶│   FastAPI     │
-│   Frontend  │     │ Orchestrator │     │   Inference   │
-│   :3000     │     │    :4000     │     │     :8000     │
-└─────────────┘     └──────────────┘     └───────────────┘
-                           │
-              ┌────────────┴────────────┐
-              ▼                         ▼
-       ┌────────────┐           ┌────────────┐
-       │ PostgreSQL │           │   Redis    │
-       │   :5433    │           │   :6380    │
-       └────────────┘           └────────────┘
+```mermaid
+graph TD
+    subgraph "Clients"
+        Web["apps/web (Next.js)"]
+        Mobile["apps/mobile (Expo)"]
+    end
+
+    subgraph "Core"
+        Shared["packages/shared (TS Types/API)"]
+    end
+
+    subgraph "Services"
+        Orchestrator["services/orchestrator (NestJS)"]
+        Inference["services/inference (FastAPI)"]
+    end
+
+    subgraph "Data"
+        PG["PostgreSQL"]
+        RDS["Redis"]
+    end
+
+    Web -.-> Shared
+    Mobile -.-> Shared
+    Web ==> Orchestrator
+    Mobile ==> Orchestrator
+    Orchestrator ==> Inference
+    Orchestrator --- PG
+    Orchestrator --- RDS
 ```
 
-1. **[Frontend (apps/web)](./apps/web/README.md)**: A modern React interface built with Next.js 15 and Tailwind CSS. Provides video upload capabilities, live processing status via WebSockets, and a feature-rich dashboard for viewing analyzed clips and highlights.
-2. **[Orchestrator (services/orchestrator)](./services/orchestrator/README.md)**: A robust NestJS API backend. It handles database operations (Prisma + PostgreSQL), state management (Redis), WebSocket communication with the frontend, and delegates heavy processing tasks to the Inference service.
-3. **[Inference Engine (services/inference)](./services/inference/README.md)**: The core AI powerhouse built on FastAPI. It runs advanced Computer Vision models (YOLOv8) for ball tracking and goal detection, integrates with Google's Gemini API for dynamic contextual commentary, and utilizes Piper TTS for generating realistic voiceovers.
+1. **[Frontend Web (apps/web)](./apps/web/README.md)**: A modern React interface built with Next.js 15. Handles video uploads, live processing status, and the match dashboard.
+2. **[Frontend Mobile (apps/mobile)](./apps/mobile/README.md)**: A React Native cross-platform app built with Expo and Expo Router. Shares API logic and types with the web app via a local package.
+3. **[Orchestrator (services/orchestrator)](./services/orchestrator/README.md)**: A NestJS API backend. Manages state (Prisma/Postgres, Redis), WebSockets, and delegates AI tasks to the Inference service.
+4. **[Shared Package (packages/shared)](./packages/shared)**: The single source of truth for TypeScript types, API client factories, and data transformation utilities used by both web and mobile.
+5. **[Inference Engine (services/inference)](./services/inference/README.md)**: Python FastAPI service running YOLOv8, Gemini LLM analysis, and TTS generation.
 
 ---
 
@@ -132,15 +149,16 @@ npm run dev
 ```text
 Matcha-AI-DTU/
 ├── apps/
-│   └── web/              # Next.js 15 Frontend
-├── packages/             # Shared local packages (if any)
+│   ├── web/              # Next.js 15 Web App
+│   └── mobile/           # Expo (React Native) Mobile App
+├── packages/
+│   └── shared/           # @matcha/shared — Types, Client, Utils
 ├── services/
-│   ├── orchestrator/     # NestJS API, WebSockets, Prisma DB access
-│   └── inference/        # Python FastAPI, YOLOv8 CV Models, TTS, Gemini LLM
-├── uploads/              # Shared video/audio uploads directory
-├── SETUP.md              # Detailed local setup commands
-├── GOAL_DETECTION_INTEGRATION.md # Docs on the Goal Detection feature
-└── docker-compose.yml    # Defines Postgres + Redis setup
+│   ├── orchestrator/     # NestJS API (Port 4000)
+│   └── inference/        # Python FastAPI AI Pipeline (Port 8000)
+├── uploads/              # Global video/audio assets
+├── SETUP.md              # Detailed setup documentation
+└── docker-compose.yml    # Database & Redis infrastructure
 ```
 
 ---

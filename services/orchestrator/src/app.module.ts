@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -10,10 +11,15 @@ import { EventsModule } from './events/events.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+
+    // Rate limiting — 60 requests / 60s globally. Upload endpoint adds its own tighter guard.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
+
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', '..', '..', 'uploads'),
       serveRoot: '/uploads',
     }),
+
     MatchesModule,
     EventsModule,
   ],

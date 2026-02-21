@@ -4,11 +4,14 @@ import {
   Post,
   Delete,
   Param,
+  Body,
   UseInterceptors,
   UploadedFile,
-  Body,
+  NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { MatchesService } from './matches.service';
 import { Match } from '@prisma/client';
 import 'multer';
@@ -17,9 +20,12 @@ import 'multer';
 export class MatchesController {
   constructor(private readonly matchesService: MatchesService) {}
 
+  // Stricter rate limit on upload — 5 uploads per minute to protect disk + inference queue
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(@UploadedFile() file: any): Promise<Match> {
+  async uploadFile(@UploadedFile() file: Express.Multer.File): Promise<Match> {
+    if (!file) throw new BadRequestException('No file provided');
     return this.matchesService.create(file);
   }
 
@@ -29,8 +35,10 @@ export class MatchesController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Match | null> {
-    return this.matchesService.findOne(id);
+  async findOne(@Param('id') id: string): Promise<Match> {
+    const match = await this.matchesService.findOne(id);
+    if (!match) throw new NotFoundException(`Match ${id} not found`);
+    return match;
   }
 
   @Post(':id/progress')
@@ -38,22 +46,28 @@ export class MatchesController {
     @Param('id') id: string,
     @Body() body: { progress: number },
   ) {
+    if (typeof body.progress !== 'number') {
+      throw new BadRequestException('progress must be a number');
+    }
     return this.matchesService.updateProgress(id, body.progress);
   }
 
   @Post(':id/live-event')
-  async addLiveEvent(@Param('id') id: string, @Body() body: any) {
+  async addLiveEvent(@Param('id') id: string, @Body() body: object) {
     return this.matchesService.addLiveEvent(id, body);
   }
 
   @Post(':id/complete')
-  async completeMatch(@Param('id') id: string, @Body() body: any) {
-    return this.matchesService.completeMatch(id, body);
+  async completeMatch(@Param('id') id: string, @Body() body: object) {
+    if (!body) throw new BadRequestException('Payload required');
+    return this.matchesService.completeMatch(id, body as any);
   }
 
   @Post(':id/reanalyze')
   async reanalyzeMatch(@Param('id') id: string): Promise<{ ok: boolean }> {
-    return this.matchesService.reanalyzeMatch(id);
+    const result = await this.matchesService.reanalyzeMatch(id);
+    if (!result.ok) throw new NotFoundException(`Match ${id} not found`);
+    return result;
   }
 
   @Delete(':id')

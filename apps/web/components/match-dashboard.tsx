@@ -105,16 +105,11 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
             const isDeleting = deletingId === m.id;
             const progress = progressMap[m.id] ?? 0;
             const isProcessing = m.status === "PROCESSING" || m.status === "UPLOADED";
-            const accentColor =
-              m.status === "COMPLETED" ? "var(--green)"
-              : m.status === "PROCESSING" ? "var(--cyan)"
-              : m.status === "UPLOADED" ? "var(--yellow)"
-              : "var(--red)";
-            const chipClass =
-              m.status === "COMPLETED" ? "chip chip-green"
-              : m.status === "PROCESSING" ? "chip chip-cyan"
-              : m.status === "FAILED" ? "chip chip-red"
-              : "chip chip-ghost";
+            const accentColor = cfg.color;
+            const chipClass = cfg.color === "#34d399" ? "chip chip-green" 
+                            : cfg.color === "#60a5fa" ? "chip chip-cyan" 
+                            : cfg.color === "#f87171" ? "chip chip-red" 
+                            : "chip chip-ghost";
 
             return (
               <motion.div 
