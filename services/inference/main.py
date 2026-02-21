@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import threading
 from app.api.routes import router as api_router
+from app.core.analysis import _get_tts
 
 app = FastAPI(title="Matcha AI Inference Service", version="0.1.0")
 
@@ -14,6 +16,11 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+@app.on_event("startup")
+def startup_event():
+    # Pre-load TTS model in background to avoid blocking startup
+    threading.Thread(target=_get_tts, daemon=True).start()
 
 @app.get("/health")
 def health_check():

@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #e5e5e5;
+  --accent: #10b981;
+  --accent-dim: #059669;
+  --surface: #141414;
+  --border: #262626;
 }
 
 @theme inline {
@@ -10,17 +14,63 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-heading);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
-    --foreground: #ededed;
+    --foreground: #e5e5e5;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Custom heading font */
+.font-heading {
+  font-family: var(--font-heading), system-ui, sans-serif;
+}
+
+/* Flat design overrides - kill all rounded corners */
+* {
+  border-radius: 0 !important;
+}
+
+/* Edgy accent line decoration */
+.accent-line {
+  position: relative;
+}
+.accent-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 60px;
+  height: 3px;
+  background: var(--accent);
+}
+
+/* Sharp button hover effect */
+.btn-flat {
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+.btn-flat:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 0 var(--accent);
+}
+
+/* Edgy card hover */
+.card-flat {
+  transition: all 0.15s ease;
+  border: 1px solid var(--border);
+}
+.card-flat:hover {
+  border-color: var(--accent);
+  box-shadow: 4px 4px 0 0 var(--accent);
+  transform: translate(-2px, -2px);
 }

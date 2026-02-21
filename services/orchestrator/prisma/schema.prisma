@@ -8,22 +8,56 @@ datasource db {
 }
 
 model Match {
-  id          String   @id @default(uuid())
-  uploadUrl   String
-  status      MatchStatus @default(UPLOADED)
-  duration    Int?     // in seconds
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  events      Event[]
+  id            String         @id @default(uuid())
+  uploadUrl     String
+  status        MatchStatus    @default(UPLOADED)
+  progress      Int            @default(0) // Processing progress 0-100
+  duration      Float?         // in seconds (float for precision)
+  summary       String?        // AI-generated match narrative
+  highlightReelUrl String?     // URL to the combined highlight reel
+  trackingData  Json?          // ball + person bounding boxes per sampled frame
+  teamColors    Json?          // [[R,G,B],[R,G,B]] detected jersey colours
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  events        Event[]
+  emotionScores EmotionScore[]
+  highlights    Highlight[]
 }
 
 model Event {
+  id          String    @id @default(uuid())
+  matchId     String
+  match       Match     @relation(fields: [matchId], references: [id])
+  timestamp   Float
+  type        EventType
+  confidence  Float
+  finalScore  Float     @default(0)
+  commentary  String?
+  createdAt   DateTime  @default(now())
+}
+
+model EmotionScore {
+  id            String   @id @default(uuid())
+  matchId       String
+  match         Match    @relation(fields: [matchId], references: [id])
+  timestamp     Float
+  audioScore    Float
+  motionScore   Float
+  contextWeight Float
+  finalScore    Float
+  createdAt     DateTime @default(now())
+}
+
+model Highlight {
   id          String   @id @default(uuid())
   matchId     String
   match       Match    @relation(fields: [matchId], references: [id])
-  timestamp   Float    // in seconds from start
-  type        EventType
-  confidence  Float
+  startTime   Float
+  endTime     Float
+  score       Float
+  eventType   String?
+  commentary  String?
+  videoUrl    String?
   createdAt   DateTime @default(now())
 }
 
@@ -39,5 +73,5 @@ enum EventType {
   FOUL
   TACKLE
   SAVE
-  Celebrate // emotion based
+  Celebrate
 }
