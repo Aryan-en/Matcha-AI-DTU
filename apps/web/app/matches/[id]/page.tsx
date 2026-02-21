@@ -11,47 +11,27 @@ import {
 import { io, Socket } from "socket.io-client";
 import VideoPlayer from "@/components/VideoPlayer";
 
+import type { MatchEvent, Highlight, EmotionScore, TrackFrame, MatchDetail } from "@matcha/shared";
+import {
+  getTop5Moments, countEventsByType, filterEventsByType,
+  getLiveIntensity, avgConfidence, maxScore, formatTime,
+  EVENT_CONFIG as SHARED_EVENT_CONFIG, DEFAULT_EVENT_CONFIG,
+  STATUS_CONFIG,
+} from "@matcha/shared";
 
-interface MatchEvent {
-  id: string; timestamp: number; type: string; confidence: number;
-  finalScore: number; commentary: string | null;
-}
-interface Highlight {
-  id: string; startTime: number; endTime: number;
-  score: number; eventType: string | null; commentary: string | null; videoUrl: string | null;
-}
-interface EmotionScore {
-  timestamp: number; audioScore: number; motionScore: number; finalScore: number;
-}
-// Tracking frame: {t: seconds, b: [[nx,ny,nw,nh,conf],...], p: [[nx,ny,nw,nh,tid,team],...]}
-type TrackFrame = { t: number; b: number[][]; p: number[][] };
-
-interface MatchDetail {
-  id: string; status: string; duration: number | null;
-  uploadUrl: string; createdAt: string;
-  summary: string | null;
-  highlightReelUrl: string | null;
-  trackingData: TrackFrame[] | null;
-  teamColors: number[][] | null;
-  events: MatchEvent[];
-  highlights: Highlight[];
-  emotionScores: EmotionScore[];
-}
-
-
+// Web-only props on EVENT_CONFIG (icon, bg, border) — extend the shared colour config
+import type React from "react";
 const EVENT_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  GOAL:      { label: "Goal",    color: "text-emerald-400", bg: "bg-emerald-400/15", border: "border-emerald-400/40", icon: <Target className="w-3.5 h-3.5" /> },
-  TACKLE:    { label: "Tackle",  color: "text-amber-400",   bg: "bg-amber-400/15",   border: "border-amber-400/40",   icon: <Zap className="w-3.5 h-3.5" /> },
-  FOUL:      { label: "Foul",    color: "text-red-400",     bg: "bg-red-400/15",     border: "border-red-400/40",     icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  SAVE:      { label: "Save",    color: "text-blue-400",    bg: "bg-blue-400/15",    border: "border-blue-400/40",    icon: <Shield className="w-3.5 h-3.5" /> },
-  Celebrate: { label: "Celeb",   color: "text-purple-400",  bg: "bg-purple-400/15",  border: "border-purple-400/40",  icon: <Star className="w-3.5 h-3.5" /> },
+  GOAL:      { ...SHARED_EVENT_CONFIG.GOAL,      bg: "bg-emerald-400/15", border: "border-emerald-400/40", icon: <Target className="w-3.5 h-3.5" /> },
+  TACKLE:    { ...SHARED_EVENT_CONFIG.TACKLE,    bg: "bg-amber-400/15",   border: "border-amber-400/40",   icon: <Zap className="w-3.5 h-3.5" /> },
+  FOUL:      { ...SHARED_EVENT_CONFIG.FOUL,      bg: "bg-red-400/15",     border: "border-red-400/40",     icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  SAVE:      { ...SHARED_EVENT_CONFIG.SAVE,      bg: "bg-blue-400/15",    border: "border-blue-400/40",    icon: <Shield className="w-3.5 h-3.5" /> },
+  Celebrate: { ...SHARED_EVENT_CONFIG.Celebrate, bg: "bg-purple-400/15",  border: "border-purple-400/40",  icon: <Star className="w-3.5 h-3.5" /> },
 };
-const DEFAULT_EVT = { label: "Event", color: "text-zinc-400", bg: "bg-zinc-400/15", border: "border-zinc-400/40", icon: <Star className="w-3.5 h-3.5" /> };
+const DEFAULT_EVT = { ...DEFAULT_EVENT_CONFIG, bg: "bg-zinc-400/15", border: "border-zinc-400/40", icon: <Star className="w-3.5 h-3.5" /> };
 
-function fmt(secs: number) {
-  const m = Math.floor(secs / 60), s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
+function fmt(secs: number) { return formatTime(secs); }
+
 
 function ScoreBadge({ score }: { score: number }) {
   const color = score >= 7.5 ? "text-emerald-400" : score >= 5 ? "text-amber-400" : "text-zinc-500";
@@ -82,7 +62,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// â”€â”€â”€ Intensity sparkline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 function IntensityChart({ scores, duration }: { scores: EmotionScore[]; duration: number }) {
   if (!scores.length || !duration) return null;
   const W = 600, H = 60;
@@ -298,42 +278,15 @@ export default function MatchDetailPage() {
   const events = match?.events ?? [];
   const emotionScores = match?.emotionScores ?? [];
 
-  const byType = useMemo(() => events.reduce<Record<string, number>>((acc, e) => {
-    acc[e.type] = (acc[e.type] ?? 0) + 1; return acc;
-  }, {}), [events]);
+  const byType        = useMemo(() => countEventsByType(events),                         [events]);
+  const topScore      = useMemo(() => maxScore(events),                                   [events]);
+  const avgConf       = useMemo(() => avgConfidence(events),                              [events]);
+  const top5Moments   = useMemo(() => getTop5Moments(events),                             [events]);
+  const liveIntensity = useMemo(() => getLiveIntensity(emotionScores, currentTime),       [emotionScores, currentTime]);
+  const allEventTypes = useMemo(() => Array.from(new Set(events.map(e => e.type))),       [events]);
+  const filteredEvents = useMemo(() => filterEventsByType(events, eventTypeFilter),       [events, eventTypeFilter]);
+  const sortedLive    = useMemo(() => [...liveEvents].sort((a, b) => b.timestamp - a.timestamp), [liveEvents]);
 
-  const topScore = useMemo(() =>
-    events.length ? Math.max(...events.map(e => e.finalScore)) : 0
-  , [events]);
-
-  const avgConf = useMemo(() =>
-    events.length ? events.reduce((s, e) => s + e.confidence, 0) / events.length : 0
-  , [events]);
-
-  const top5Moments = useMemo(() =>
-    [...events].sort((a, b) => b.finalScore - a.finalScore).slice(0, 5)
-  , [events]);
-
-  const liveIntensity = useMemo(() => {
-    if (!emotionScores.length) return 0;
-    const nearest = emotionScores.reduce((prev, cur) =>
-      Math.abs(cur.timestamp - currentTime) < Math.abs(prev.timestamp - currentTime) ? cur : prev
-    );
-    return nearest.motionScore;
-  }, [emotionScores, currentTime]);
-
-  const allEventTypes = useMemo(() =>
-    Array.from(new Set(events.map(e => e.type)))
-  , [events]);
-
-  const filteredEvents = useMemo(() =>
-    eventTypeFilter === "ALL" ? events : events.filter(e => e.type === eventTypeFilter)
-  , [events, eventTypeFilter]);
-
-  const sortedLive = useMemo(() =>
-    [...liveEvents].sort((a, b) => b.timestamp - a.timestamp)
-  , [liveEvents]);
-  // ──────────────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (

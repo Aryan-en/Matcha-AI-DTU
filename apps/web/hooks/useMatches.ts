@@ -1,19 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
-
-export interface MatchSummary {
-  id: string;
-  status: string;
-  progress: number;
-  duration: number | null;
-  createdAt: string;
-  uploadUrl: string;
-  _count: { events: number; highlights: number };
-}
-
-export interface ProgressMap {
-  [matchId: string]: number;
-}
+import type { MatchSummary, ProgressMap } from "@matcha/shared";
 
 export function useMatches(url: string = "http://localhost:4000") {
   const [matches, setMatches] = useState<MatchSummary[]>([]);
@@ -34,7 +21,7 @@ export function useMatches(url: string = "http://localhost:4000") {
             initialProgress[m.id] = m.progress;
           }
         });
-        setProgressMap(prev => ({ ...initialProgress, ...prev }));
+        setProgressMap((prev: ProgressMap) => ({ ...initialProgress, ...prev }));
       }
     } catch { 
       console.warn("Match Orchestrator offline"); 
@@ -47,14 +34,14 @@ export function useMatches(url: string = "http://localhost:4000") {
     socketRef.current = io(url);
     
     socketRef.current.on("progress", (data: { matchId: string; progress: number }) => {
-      setProgressMap(prev => ({ ...prev, [data.matchId]: data.progress }));
+      setProgressMap((prev: ProgressMap) => ({ ...prev, [data.matchId]: data.progress }));
       if (data.progress >= 100) {
         setTimeout(fetchMatches, 500);
       }
     });
 
     socketRef.current.on("complete", (data: { matchId: string }) => {
-      setProgressMap(prev => ({ ...prev, [data.matchId]: 100 }));
+      setProgressMap((prev: ProgressMap) => ({ ...prev, [data.matchId]: 100 }));
       fetchMatches();
     });
 
