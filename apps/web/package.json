@@ -9,9 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@matcha/shared": "*",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@matcha/shared": "*",
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",
     "clsx": "^2.1.1",
@@ -29,7 +29,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^9",
+    "eslint": "^10.0.1",
     "eslint-config-next": "15.1.7",
     "tailwindcss": "^4",
     "typescript": "^5"
