@@ -16,12 +16,14 @@ async function bootstrap() {
     // API versioning — all routes live under /api/v1
     app.setGlobalPrefix('api/v1');
 
-    // CORS — explicit allowed origins only (not wildcard)
+    // CORS — allow both localhost and 127.0.0.1 for local development
+    const allowedOrigins = [...CORS_ORIGIN, 'http://127.0.0.1:3000'];
     app.enableCors({
-      origin: CORS_ORIGIN,
-      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      origin: allowedOrigins,
+      methods: ['GET', 'POST', 'DELETE', 'OPTIONS', 'PATCH'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Range'],
       credentials: true,
+      exposedHeaders: ['Content-Range', 'X-Content-Duration'],
     });
 
     // Global validation pipe — rejects malformed payloads with HTTP 400

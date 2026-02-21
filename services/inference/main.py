@@ -27,4 +27,11 @@ def health_check():
     return {"status": "ok", "service": "inference"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    try:
+        print("🚀 Starting Inference Server on http://0.0.0.0:8000")
+        uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False, log_level="info")
+    except Exception as e:
+        print(f"❌ Server failed to start: {e}")
+        import traceback
+        traceback.print_exc()
+

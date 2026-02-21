@@ -591,7 +591,7 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
     return f"http://localhost:4000/uploads/{reel_filename}"
 
 
-ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:4000")
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:4000/api/v1")
 
 # Use YOLOv8s (small) instead of nano - better GPU parallelization, faster on RTX GPUs
 # Downloads automatically on first run (~22MB)

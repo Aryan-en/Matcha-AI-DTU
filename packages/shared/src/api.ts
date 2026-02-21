@@ -22,7 +22,7 @@ export function createApiClient(baseUrl: string) {
       new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         const form = new FormData();
-        form.append("video", file);
+        form.append("file", file);
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
         };
@@ -31,7 +31,7 @@ export function createApiClient(baseUrl: string) {
           else reject(new Error(`Upload failed: ${xhr.status}`));
         };
         xhr.onerror = () => reject(new Error("Network error"));
-        xhr.open("POST", `${baseUrl}/upload`);
+        xhr.open("POST", `${baseUrl}/matches/upload`);
         xhr.send(form);
       }),
   };

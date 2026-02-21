@@ -45,7 +45,7 @@ if errorlevel 1 (
 )
 
 :: Set environment variables
-set ORCHESTRATOR_URL=http://localhost:4000
+set ORCHESTRATOR_URL=http://localhost:4000/api/v1
 
 :: Load GEMINI_API_KEY from environment or .env file
 if defined GEMINI_API_KEY (

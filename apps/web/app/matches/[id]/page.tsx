@@ -218,7 +218,7 @@ export default function MatchDetailPage() {
 
     const load = async () => {
       try {
-        const res = await fetch(`http://localhost:4000/matches/${id}`);
+        const res = await fetch(`http://localhost:4000/api/v1/matches/${id}`);
         if (res.ok) setMatch(await res.json());
       } catch { /* ignore */ }
       finally { setLoading(false); }
@@ -258,7 +258,7 @@ export default function MatchDetailPage() {
   const handleDelete = useCallback(async () => {
     setDeleting(true);
     try {
-      await fetch(`http://localhost:4000/matches/${id}`, { method: "DELETE" });
+      await fetch(`http://localhost:4000/api/v1/matches/${id}`, { method: "DELETE" });
       router.push("/");
     } catch { setDeleting(false); }
   }, [id, router]);
@@ -266,7 +266,7 @@ export default function MatchDetailPage() {
   const handleReanalyze = useCallback(async () => {
     setReanalyzing(true);
     try {
-      await fetch(`http://localhost:4000/matches/${id}/reanalyze`, { method: "POST" });
+      await fetch(`http://localhost:4000/api/v1/matches/${id}/reanalyze`, { method: "POST" });
       setMatch(prev => prev ? { ...prev, status: "PROCESSING", trackingData: null, teamColors: null } : prev);
     } catch { /* ignore */ } finally {
       setReanalyzing(false);

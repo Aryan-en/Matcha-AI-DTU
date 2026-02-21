@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import type { MatchSummary, ProgressMap } from "@matcha/shared";
 
-export function useMatches(url: string = "http://localhost:4000") {
+export function useMatches(baseUrl: string = "http://localhost:4000") {
+  const apiUrl = `${baseUrl}/api/v1`;
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [progressMap, setProgressMap] = useState<ProgressMap>({});
@@ -11,7 +12,7 @@ export function useMatches(url: string = "http://localhost:4000") {
 
   const fetchMatches = useCallback(async () => {
     try {
-      const res = await fetch(`${url}/matches`);
+      const res = await fetch(`${apiUrl}/matches`);
       if (res.ok) {
         const data: MatchSummary[] = await res.json();
         setMatches(data);
@@ -28,10 +29,10 @@ export function useMatches(url: string = "http://localhost:4000") {
     } finally { 
       setLoading(false); 
     }
-  }, [url]);
+  }, [apiUrl]);
 
   useEffect(() => {
-    socketRef.current = io(url);
+    socketRef.current = io(baseUrl);
     
     socketRef.current.on("progress", (data: { matchId: string; progress: number }) => {
       setProgressMap((prev: ProgressMap) => ({ ...prev, [data.matchId]: data.progress }));
@@ -48,7 +49,7 @@ export function useMatches(url: string = "http://localhost:4000") {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [url, fetchMatches]);
+  }, [baseUrl, fetchMatches]);
 
   useEffect(() => {
     if (!socketRef.current) return;
@@ -62,11 +63,11 @@ export function useMatches(url: string = "http://localhost:4000") {
     fetchMatches();
     const interval = setInterval(fetchMatches, 5000);
     return () => clearInterval(interval);
-  }, [url, fetchMatches]);
+  }, [baseUrl, fetchMatches]);
 
   const deleteMatch = async (id: string) => {
     try {
-      await fetch(`${url}/matches/${id}`, { method: "DELETE" });
+      await fetch(`${apiUrl}/matches/${id}`, { method: "DELETE" });
       setMatches(prev => prev.filter(m => m.id !== id));
       return true;
     } catch {

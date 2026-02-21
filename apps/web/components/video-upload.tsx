@@ -6,6 +6,9 @@ import { useDropzone } from "react-dropzone";
 import { Upload, FileVideo, X, CheckCircle2, AlertCircle, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { io, Socket } from "socket.io-client";
+import { createApiClient } from "@matcha/shared";
+
+const api = createApiClient("http://localhost:4000/api/v1");
 
 export const VideoUpload = React.memo(function VideoUploadContent() {
   const router = useRouter();
@@ -90,34 +93,17 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
       setStatus("uploading");
       setUploadProgress(0);
 
-      const formData = new FormData();
-      formData.append("file", fileToUpload);
-
-      // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev >= 90) {
-            return 90;
-          }
-          return prev + 10;
+      try {
+        const data = await api.uploadVideo(fileToUpload, (pct) => {
+          setUploadProgress(pct);
         });
-      }, 200);
-
-      const response = await fetch("http://localhost:4000/matches/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      clearInterval(progressInterval);
-
-      if (!response.ok) {
-        throw new Error("Upload failed");
+        
+        setUploadProgress(100);
+        setMatchId(data.id);
+        setStatus("processing");
+      } catch (err) {
+        throw err;
       }
-
-      const data = await response.json();
-      setUploadProgress(100);
-      setMatchId(data.id);
-      setStatus("processing"); // Switch to processing state
       
     } catch (error) {
       console.error(error);

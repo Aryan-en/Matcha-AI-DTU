@@ -55,32 +55,17 @@ export class MatchesService {
     this.prisma = new PrismaClient();
   }
 
-  async create(file: any): Promise<Match> {
-    if (!file || !file.buffer || !file.originalname) {
-      throw new Error("Invalid file upload");
-    }
-    if (file.buffer.length > 5000000000) {
-      throw new Error("File exceeds 5GB limit");
+  async create(file: Express.Multer.File): Promise<Match> {
+    if (!file || !file.path || !file.filename) {
+      throw new Error("Invalid file upload state");
     }
     
-    const fileName = `${Date.now()}-${file.originalname}`;
-    const uploadsDir = path.join(process.cwd(), '..', '..', 'uploads');
-    let filePath: string;
+    // File is already saved to disk by Multer's diskStorage in the controller.
+    const fileName = file.filename;
+    const filePath = file.path;
 
-    try {
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-
-      filePath = path.join(uploadsDir, fileName);
-      fs.writeFileSync(filePath, file.buffer);
-    } catch (error) {
-      this.logger.error(`Failed to save upload: ${(error as Error).message}`);
-      throw error;
-    }
-
-    // Use the actual filesystem path (works for native Windows execution)
-    const publicUrl = `http://localhost:4000/uploads/${fileName}`; // Mock public URL
+    // Construct the public URL for playback
+    const publicUrl = `http://localhost:4000/uploads/${fileName}`;
 
     const match = await this.prisma.match.create({
       data: {
@@ -90,6 +75,7 @@ export class MatchesService {
       },
     });
 
+    this.logger.log(`File saved to ${filePath}. Triggering inference for match ${match.id}.`);
     this.triggerInference(match.id, filePath);
 
     return match;

@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
 import { MatchesService } from './matches.service';
 import { Match } from '@prisma/client';
 import 'multer';
@@ -23,7 +25,20 @@ export class MatchesController {
   // Stricter rate limit on upload — 5 uploads per minute to protect disk + inference queue
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: join(process.cwd(), '..', '..', 'uploads'),
+        filename: (req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
+        },
+      }),
+      limits: {
+        fileSize: 5 * 1024 * 1024 * 1024, // 5GB limit
+      },
+    }),
+  )
   async uploadFile(@UploadedFile() file: Express.Multer.File): Promise<Match> {
     if (!file) throw new BadRequestException('No file provided');
     return this.matchesService.create(file);
