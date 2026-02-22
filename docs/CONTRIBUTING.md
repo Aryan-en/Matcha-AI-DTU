@@ -7,6 +7,7 @@ If you are looking for a place to contribute:
 1. Check out the **Issues** tab.
 2. Look for tickets tagged `good first issue` or `help wanted`.
 3. Read the `docs/ARCHITECTURE.md` to understand the overarching data flow before jumping in.
+4. Read `services/inference/AI_PIPELINE.md` if you are working on the Python inference pipeline.
 
 ## 2. Fork & Clone
 1. Fork the repository on GitHub.
@@ -42,4 +43,159 @@ We utilize **Conventional Commits**:
 3. Reference the Issue number utilizing closing terminology (e.g. "Closes #42").
 4. Wait for Code Reviews. At least 1 approval is needed before merging.
 
-Thank you! Let's build the best sports ML platform.
+---
+
+## 7. Local Development Setup (Full Stack)
+
+Follow these steps to run the full Matcha AI stack locally on Windows.
+
+### Prerequisites
+- **Node.js** >= 18 (LTS recommended)
+- **Python** >= 3.11 (3.14 compatible)
+- **PostgreSQL** running on port `5433` (or Docker)
+- **FFmpeg** in your system `PATH`
+- A **Gemini API key** from [Google AI Studio](https://makersuite.google.com/app/apikey)
+- A **HuggingFace token** (free) from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — for Kokoro TTS
+
+### Step 1: Install Node Dependencies
+```bash
+npm install
+```
+
+### Step 2: Set Up the Orchestrator
+```bash
+cd services/orchestrator
+cp .env.example .env
+# Edit .env — set DATABASE_URL and HF_TOKEN
+npx prisma migrate dev
+npx prisma generate
+```
+
+### Step 3: Set Up the Inference Service
+```bash
+cd services/inference
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Linux/macOS
+pip install -r requirements.txt
+```
+
+Create `services/inference/.env`:
+```
+GEMINI_API_KEY=your_gemini_key_here
+HF_TOKEN=hf_your_huggingface_token
+ORCHESTRATOR_URL=http://localhost:4000
+```
+
+### Step 4: Run the Full Stack
+```bash
+# From the monorepo root
+npx turbo run dev
+```
+
+This starts:
+- `apps/web` on `http://localhost:3000`
+- `services/orchestrator` on `http://localhost:4000`
+- `services/inference` on `http://localhost:8000`
+
+---
+
+## 8. Working on the Python Inference Pipeline
+
+The inference service lives entirely in `services/inference/`. Key files:
+
+| File | Purpose |
+|---|---|
+| `app/core/analysis.py` | **Main pipeline** — 5-phase video analysis orchestrator |
+| `app/core/heatmap.py` | Phase 5 analytics: player heatmap PNG + ball speed estimation |
+| `app/core/goal_detection.py` | Kalman filter + Homography + FSM goal detection engine |
+| `app/core/soccernet_detector.py` | SoccerNet-based football event detector |
+| `app/api/routes.py` | FastAPI route handlers |
+| `main.py` | FastAPI app entrypoint |
+
+### CONFIG dict
+Most tunable parameters are in the `CONFIG` dict at the top of `analysis.py`. Edit there to adjust sensitivity:
+```python
+CONFIG = {
+    "MOTION_PEAK_THRESHOLD": 0.45,  # Raise to detect fewer, more dramatic highlights
+    "HIGHLIGHT_COUNT": 5,           # Number of clips in the highlight reel
+    "COMPRESS_SIZE_THRESHOLD_MB": 100,  # Pre-compress videos larger than this
+}
+```
+
+### Adding a New Event Type
+1. Add the new type to the `EventType` enum in `services/orchestrator/prisma/schema.prisma`
+2. Add a weight to `EVENT_WEIGHTS` in `analysis.py`
+3. Add a minimum gap to `MODEL_MIN_GAP`
+4. Add fallback commentary templates to `_FALLBACK`
+5. Run `npx prisma migrate dev --name add_event_type` from `services/orchestrator/`
+6. Run `npx prisma generate` to update the Prisma client
+
+### Adding a New Analytics Metric
+1. Add the computation logic to `app/core/heatmap.py` (or create a new module in `app/core/`)
+2. Add the result to the `payload` dict in `analyze_video()` in `analysis.py`
+3. Add the field to `CompletePayload` interface in `services/orchestrator/src/matches/matches.service.ts`
+4. Add the field to the Prisma `Match` model in `schema.prisma` and run a migration
+5. Display it in the "Analytics" tab in `apps/web/app/matches/[id]/page.tsx`
+
+### TTS Voice Configuration
+The 3-tier TTS system selects quality automatically. To change voices:
+```python
+# In services/inference/app/core/analysis.py
+_KOKORO_MODEL   = "hexgrad/Kokoro-82M"   # Change to any HF TTS model
+_KOKORO_VOICE   = "af_sky"               # Kokoro voice ID
+_EDGE_TTS_VOICE = "en-GB-RyanNeural"     # edge-tts voice name
+```
+
+Available Kokoro voice IDs: `af_sky`, `af_bella`, `am_adam`, `am_michael`, `bf_emma`, `bm_george`, `bm_lewis`
+
+---
+
+## 9. Working on the Frontend (Next.js)
+
+The frontend lives in `apps/web/`. Key locations:
+
+| File/Directory | Purpose |
+|---|---|
+| `app/page.tsx` | Hero landing page |
+| `app/matches/page.tsx` | Match dashboard with filter tabs |
+| `app/matches/[id]/page.tsx` | Match detail page (video, events, highlights, analytics) |
+| `components/match-dashboard.tsx` | Reusable match card grid component |
+| `components/layout/Navbar.tsx` | Global navigation bar |
+| `app/globals.css` | Global CSS, design tokens, utility classes |
+
+### Adding a section to the Analytics Tab
+The Analytics tab is in `apps/web/app/matches/[id]/page.tsx` inside the `activeTab === "analytics"` block. To add a new metric:
+1. Ensure the orchestrator returns it in `GET /matches/:id`
+2. Access it via `(match as any).yourNewField` (or extend the `MatchDetail` TypeScript type)
+3. Add a new `<div className="bg-card border border-border p-5">` card within the analytics tab JSX
+
+### Mobile Responsiveness Guidelines
+- Always use `text-[10px] sm:text-sm` for text that appears in filter tabs or compact layouts
+- Always use `size-4 sm:size-5` for icons that appear in headings
+- Add `hide-scrollbar` class to any horizontally scrolling container (`<div>`)
+- Test on at least 375px viewport width (iPhone SE size) before opening a PR
+
+---
+
+## 10. Environment Variables Cheat Sheet
+
+Never commit `.env` files. All secrets stay local.
+
+```bash
+# services/orchestrator/.env
+DATABASE_URL="postgresql://user:pass@localhost:5433/matcha_db?schema=public"
+HF_TOKEN=hf_your_token_here
+CORS_ORIGIN=http://localhost:3000
+INFERENCE_URL=http://localhost:8000
+PORT=4000
+
+# services/inference/.env  
+GEMINI_API_KEY=your_google_ai_studio_key
+HF_TOKEN=hf_your_token_here
+ORCHESTRATOR_URL=http://localhost:4000
+```
+
+---
+
+Thank you! Let's build the best sports ML platform. 🏆

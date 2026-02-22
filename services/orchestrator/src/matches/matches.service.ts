@@ -41,6 +41,8 @@ interface CompletePayload {
   highlightReelUrl?: string;
   trackingData?: any[]; // normalised bbox frames [{t, b, p}]
   teamColors?: number[][]; // [[R,G,B],[R,G,B]]
+  heatmapUrl?: string;   // URL to player density heatmap PNG
+  topSpeedKmh?: number;  // Top estimated ball speed in km/h
 }
 
 @Injectable()
@@ -56,16 +58,41 @@ export class MatchesService {
   }
 
   async create(file: Express.Multer.File): Promise<Match> {
-    if (!file || !file.path || !file.filename) {
-      throw new Error("Invalid file upload state");
+    if (!file || !file.originalname) {
+      throw new Error("Invalid file upload");
+    }
+    if (file.size > 5000000000) {
+      throw new Error("File exceeds 5GB limit");
     }
     
-    // File is already saved to disk by Multer's diskStorage in the controller.
-    const fileName = file.filename;
-    const filePath = file.path;
+    let filePath: string;
+    let fileName: string;
 
-    // Construct the public URL for playback
-    const publicUrl = `http://localhost:4000/uploads/${fileName}`;
+    if (file.path) {
+      // Multer diskStorage saved the file
+      filePath = file.path;
+      fileName = file.filename;
+    } else if (file.buffer) {
+      // Fallback for memoryStorage
+      fileName = `${Date.now()}-${file.originalname}`;
+      const uploadsDir = path.join(process.cwd(), '..', '..', 'uploads');
+      
+      try {
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+        filePath = path.join(uploadsDir, fileName);
+        fs.writeFileSync(filePath, file.buffer);
+      } catch (error) {
+        this.logger.error(`Failed to save upload: ${(error as Error).message}`);
+        throw error;
+      }
+    } else {
+      throw new Error("Invalid file upload: neither buffer nor path found");
+    }
+
+    // Use the actual filesystem path (works for native Windows execution)
+    const publicUrl = `http://localhost:4000/uploads/${fileName}`; // Mock public URL
 
     const match = await this.prisma.match.create({
       data: {
@@ -75,7 +102,6 @@ export class MatchesService {
       },
     });
 
-    this.logger.log(`File saved to ${filePath}. Triggering inference for match ${match.id}.`);
     this.triggerInference(match.id, filePath);
 
     return match;
@@ -183,6 +209,8 @@ export class MatchesService {
       highlightReelUrl,
       trackingData,
       teamColors,
+      heatmapUrl,
+      topSpeedKmh,
     } = payload;
 
     const typeMap: Record<string, EventType> = {
@@ -240,11 +268,13 @@ export class MatchesService {
         data: {
           status: 'COMPLETED',
           duration: Math.max(0, duration ?? 0), // Ensure non-negative
-          summary: (summary ?? "").substring(0, 5000), // Cap at 5000 chars
+          summary: (summary ?? '').substring(0, 5000), // Cap at 5000 chars
           highlightReelUrl,
           trackingData,
           teamColors,
-        },
+          heatmapUrl: heatmapUrl ?? null,
+          topSpeedKmh: topSpeedKmh ?? null,
+        } as any,
       }),
     ]);
 
@@ -285,6 +315,8 @@ export class MatchesService {
           progress: 0,
           trackingData: undefined,
           teamColors: undefined,
+          heatmapUrl: null,
+          topSpeedKmh: null,
           summary: null,
           duration: null,
         } as any,

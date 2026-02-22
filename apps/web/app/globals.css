@@ -91,17 +91,7 @@ button,
   outline-offset: 2px;
 }
 
-/* Top amber rule */
-body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--green) 0%, rgba(10, 232, 124, 0.25) 100%);
-  z-index: 999;
-}
+/* Removed top amber rule */
 
 /* ── Font utilities ─────────────────────────────────────── */
 .font-display {
@@ -299,4 +289,14 @@ body::before {
 
 \n::-webkit-scrollbar-thumb:hover {
   background: var(--amber-dim);
+}
+
+/* Hide scrollbar for cleaner mobile horizontal scrolling */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

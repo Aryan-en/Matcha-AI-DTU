@@ -192,7 +192,7 @@ export default function MatchDetailPage() {
   const [match, setMatch] = useState<MatchDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeHighlight, setActiveHighlight] = useState<Highlight | null>(null);
-  const [activeTab, setActiveTab] = useState<"highlights" | "events">("highlights");
+  const [activeTab, setActiveTab] = useState<"highlights" | "events" | "analytics">("highlights");
   const [eventTypeFilter, setEventTypeFilter] = useState<string>("ALL");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -383,41 +383,78 @@ export default function MatchDetailPage() {
 
         {top5Moments.length > 0 && (
           <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Trophy className="size-4 text-amber-400" />
-              <span className="text-sm font-semibold text-foreground font-heading uppercase tracking-wide">Top 5 Moments</span>
-              <span className="text-xs text-muted-foreground ml-1">by context score · click to seek</span>
+            <div className="flex items-center gap-2 mb-4">
+              <Trophy className="size-4 sm:size-5 text-amber-400" />
+              <span className="text-sm sm:text-base font-semibold text-foreground font-heading uppercase tracking-widest">Top 5 Context Moments</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground ml-auto hidden sm:inline-block">Click any moment to instantly seek video feed</span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+            
+            {/* Scrollable Row (Desktop) / Vertical Stack (Mobile) */}
+            <div className="flex flex-col sm:flex-row sm:overflow-x-auto pb-2 gap-3 sm:gap-4 hide-scrollbar snap-x snap-mandatory">
               {top5Moments.map((ev, i) => {
                 const cfg = EVENT_CONFIG[ev.type] ?? DEFAULT_EVT;
                 const rank = i + 1;
-                const rankStyle = rank === 1 ? "border-amber-400/50 bg-amber-400/5 hover:border-amber-400"
-                                : rank === 2 ? "border-muted-foreground/50 bg-muted-foreground/5 hover:border-muted-foreground"
-                                : rank === 3 ? "border-amber-700/50 bg-amber-700/5 hover:border-amber-600"
-                                : "border-border bg-muted/50 hover:border-border-2";
-                const rankColor = rank === 1 ? "text-amber-400" : rank === 2 ? "text-muted-foreground" : rank === 3 ? "text-amber-600" : "text-muted-foreground/50";
+                
+                // Tiered styling based on rank
+                const isGold = rank === 1;
+                const isSilver = rank === 2;
+                const isBronze = rank === 3;
+                
+                const rankBorder = isGold ? "border-amber-400/50 hover:border-amber-400" 
+                                 : isSilver ? "border-zinc-300/40 hover:border-zinc-300" 
+                                 : isBronze ? "border-amber-700/50 hover:border-amber-600" 
+                                 : "border-border hover:border-border-2";
+                                 
+                const rankBg = isGold ? "bg-amber-400/5 hover:bg-amber-400/10" 
+                             : isSilver ? "bg-zinc-300/5 hover:bg-zinc-300/10" 
+                             : isBronze ? "bg-amber-700/5 hover:bg-amber-700/10" 
+                             : "bg-card hover:bg-muted/50";
+                             
+                const rankTextColor = isGold ? "text-amber-400" : isSilver ? "text-zinc-300" : isBronze ? "text-amber-600" : "text-muted-foreground/50";
+
                 return (
                   <button
                     key={ev.id}
                     onClick={() => seekTo(ev.timestamp)}
-                    className={`relative text-left border p-3 transition-all hover:translate-y-[-2px] group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${rankStyle}`}
+                    className={`group relative flex flex-col text-left border p-4 sm:p-5 transition-all duration-300 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-64 sm:shrink-0 snap-start ${rankBorder} ${rankBg}`}
                   >
-                    <div className={`absolute -top-2 -left-2 size-5 bg-background border flex items-center justify-center text-[10px] font-black ${rankColor} border-current`}>
-                      {rank}
+                    {/* Rank Badge Header */}
+                    <div className="flex items-start justify-between w-full mb-3">
+                      <div className={`flex items-center justify-center size-6 sm:size-7 rounded-sm bg-background border ${rankBorder} ${rankTextColor} font-black text-xs sm:text-sm`}>
+                        {rank}
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 text-[10px] sm:text-xs px-2 py-0.5 border ${cfg.bg} ${cfg.border} ${cfg.color}`}>
+                        {cfg.icon} {cfg.label}
+                      </span>
                     </div>
-                    <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 border mb-2 ${cfg.bg} ${cfg.border} ${cfg.color}`}>
-                      {cfg.icon} {cfg.label}
-                    </span>
-                    <p className="font-mono text-xs text-muted-foreground mb-1">{fmt(ev.timestamp)}</p>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <ScoreBadge score={ev.finalScore} />
-                      <div className="h-1 w-12 bg-border overflow-hidden">
-                        <div className="h-full bg-emerald-500" style={{ width: `${(ev.finalScore / 10) * 100}%` }} />
+
+                    {/* Meta Info */}
+                    <p className="font-mono text-sm text-foreground/80 mb-1 group-hover:text-foreground transition-colors">
+                      {fmt(ev.timestamp)}
+                    </p>
+                    
+                    {/* Context Score */}
+                    <div className="flex items-center gap-3 mb-3 w-full">
+                      <div className="text-xl sm:text-2xl font-display font-medium tracking-wide">
+                        <ScoreBadge score={ev.finalScore} />
+                      </div>
+                      <div className="h-1 flex-1 bg-background/50 overflow-hidden border border-border/50">
+                        <div 
+                          className={`h-full transition-all duration-700 ease-out ${isGold ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : 'bg-emerald-500'}`} 
+                          style={{ width: `${(ev.finalScore / 10) * 100}%` }} 
+                        />
                       </div>
                     </div>
-                    {ev.commentary && (
-                      <p className="text-[10px] text-muted-foreground/80 line-clamp-2 group-hover:text-muted-foreground transition-colors">{ev.commentary}</p>
+
+                    {/* Commentary snippet */}
+                    {ev.commentary ? (
+                      <p className="text-xs text-muted-foreground line-clamp-2 mt-auto">
+                        {ev.commentary}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground/40 italic mt-auto">
+                        No telemetry text recorded for this event
+                      </p>
                     )}
                   </button>
                 );
@@ -543,21 +580,18 @@ export default function MatchDetailPage() {
             )}
 
             <div className="flex bg-muted/30 border border-border p-1 gap-1">
-              {(["highlights", "events"] as const).map((tab) => (
+              {(["highlights", "events", "analytics"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`flex-1 text-sm py-2 font-medium transition-all uppercase tracking-wide cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset
+                  className={`flex-1 text-[10px] sm:text-sm py-2 font-medium transition-all uppercase tracking-wide cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset
                     ${activeTab === tab
                       ? "bg-primary text-[#07080F]"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
                 >
-                  {tab} {tab === "highlights"
-                    ? `(${match.highlights.length})`
-                    : match.status === "PROCESSING"
-                      ? `(${liveEvents.length} live)`
-                      : `(${match.events.length})`
-                  }
+                  {tab === "highlights" ? `Highlights (${match.highlights.length})` 
+                   : tab === "events" ? (match.status === "PROCESSING" ? `Events (${liveEvents.length} live)` : `Events (${match.events.length})`)
+                   : "Analytics"}
                 </button>
               ))}
             </div>
@@ -723,6 +757,86 @@ export default function MatchDetailPage() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+            {activeTab === "analytics" && (
+              <div className="space-y-4">
+                {/* Ball Speed Stat */}
+                {(match as any).topSpeedKmh > 0 ? (
+                  <div className="bg-card border border-border p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Zap className="size-4 text-amber-400" />
+                      <span className="text-sm font-semibold text-foreground font-heading uppercase tracking-wide">Ball Speed</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground border border-border px-2 py-0.5 uppercase tracking-wider">Est. via YOLO Tracking</span>
+                    </div>
+                    <div className="flex items-end gap-3">
+                      <span className="font-display text-5xl text-amber-400" style={{ textShadow: '0 0 20px rgba(251,191,36,0.4)' }}>
+                        {(match as any).topSpeedKmh.toFixed(1)}
+                      </span>
+                      <span className="font-mono text-sm text-muted-foreground mb-1 uppercase tracking-widest">KM / H</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground/60 mt-2">Top ball speed estimated from consecutive YOLO detections across the match footage</p>
+                  </div>
+                ) : (
+                  <div className="bg-card border border-dashed border-border/60 p-5 text-center">
+                    <Zap className="size-6 text-muted-foreground/30 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">Ball speed data unavailable — re-analyze to generate</p>
+                  </div>
+                )}
+
+                {/* Team Colors */}
+                {match.teamColors && Array.isArray(match.teamColors) && (match.teamColors as number[][]).length >= 2 && (
+                  <div className="bg-card border border-border p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <BarChart3 className="size-4 text-primary" />
+                      <span className="text-sm font-semibold text-foreground font-heading uppercase tracking-wide">Detected Team Colors</span>
+                    </div>
+                    <div className="flex gap-4">
+                      {(match.teamColors as number[][]).slice(0, 2).map((color, idx) => {
+                        const [r, g, b] = color;
+                        const hex = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+                        return (
+                          <div key={idx} className="flex items-center gap-3">
+                            <div 
+                              className="size-10 border border-border/60 shadow-lg" 
+                              style={{ backgroundColor: hex, boxShadow: `0 0 12px ${hex}60` }} 
+                            />
+                            <div>
+                              <p className="font-mono text-xs text-foreground uppercase tracking-widest">Team {String.fromCharCode(65 + idx)}</p>
+                              <p className="font-mono text-[10px] text-muted-foreground">{hex.toUpperCase()}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Player Heatmap */}
+                {(match as any).heatmapUrl ? (
+                  <div className="bg-card border border-border p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <TrendingUp className="size-4 text-primary" />
+                      <span className="text-sm font-semibold text-foreground font-heading uppercase tracking-wide">Player Density Heatmap</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground">Full match coverage</span>
+                    </div>
+                    <div className="relative w-full overflow-hidden border border-border/50">
+                      <img 
+                        src={(match as any).heatmapUrl} 
+                        alt="Player heatmap" 
+                        className="w-full h-auto object-contain"
+                        loading="lazy"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground/60 mt-2">Highlights where each team concentrated their play. Green = Team A, Red = Team B, Yellow = ball trail.</p>
+                  </div>
+                ) : (
+                  <div className="bg-card border border-dashed border-border/60 p-8 text-center">
+                    <TrendingUp className="size-8 text-muted-foreground/30 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">Heatmap not generated yet</p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">Re-analyze the match to generate a player density heatmap</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

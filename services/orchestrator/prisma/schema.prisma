@@ -17,6 +17,8 @@ model Match {
   highlightReelUrl String?     // URL to the combined highlight reel
   trackingData  Json?          // ball + person bounding boxes per sampled frame
   teamColors    Json?          // [[R,G,B],[R,G,B]] detected jersey colours
+  heatmapUrl    String?        // URL to player density heatmap PNG
+  topSpeedKmh   Float?         // Estimated top ball speed in km/h
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   events        Event[]

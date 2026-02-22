@@ -60,10 +60,21 @@ CONFIG = {
     # ── Goal Detection Parameters ─────────────────────────────────────────
     "GOAL_DETECTION_ENABLED": True,
     "GOAL_DETECTION_MIN_FRAMES": 3,  # Frames ball must be in goal area
-    "GOAL_DETECTION_MIN_SIZE": 4,  # Min ball bbox size in pixels
+    "GOAL_DETECTION_MIN_SIZE": 10,  # Min ball bbox size in pixels
     "GOAL_DETECTION_MAX_SIZE": 200,  # Max ball bbox size in pixels
-    "GOAL_DETECTION_CONFIDENCE_THRESHOLD": 0.35,  # Goal confidence threshold
+    "GOAL_DETECTION_CONFIDENCE_THRESHOLD": 0.5,  # Goal confidence threshold
 }
+
+# ── Heatmap & Speed analytics ───────────────────────────────────────────────
+try:
+    from app.core.heatmap import generate_heatmap, estimate_ball_speed
+    HEATMAP_AVAILABLE = True
+    logger.info("Heatmap module loaded ✓")
+except ImportError as e:
+    logger.warning(f"Heatmap module not available: {e}")
+    HEATMAP_AVAILABLE = False
+    generate_heatmap = None
+    estimate_ball_speed = None
 
 # ── Goal Detection (vision-based goal line crossing) ──────────────────────────
 try:
@@ -177,7 +188,7 @@ def analyze_frame_with_vision(frame, timestamp: float, context: str = "") -> dic
     try:
         pil_image = _frame_to_pil(frame)
         
-        prompt = """Analyze this football/soccer video frame (Note: this may be a wide-angle tactical camera view, so players and the ball may appear very small). Determine if a significant game event is happening.
+        prompt = """Analyze this football/soccer video frame. Determine if a significant game event is happening.
 
 IMPORTANT: Be STRICT. Only classify as an event if you're confident it's actually happening in this frame.
 
@@ -406,23 +417,63 @@ def _generate_silent_audio(output_path: str, duration: float = 10.0) -> bool:
         return False
 
 
-# ── edge-tts (Microsoft neural TTS — no API key, Python 3.14 compatible) ──────
-_EDGE_TTS_VOICE = "en-US-AriaNeural"   # natural female sports commentator voice
+# ── TTS: 3-tier system — Kokoro > edge-tts > silence ────────────────────────
+# Tier 1: Kokoro-82M (hexgrad/Kokoro-82M) — #1 ranked in TTS-Spaces-Arena
+#          Called via HuggingFace Inference API. Needs HF_TOKEN env var.
+# Tier 2: Microsoft edge-tts neural voice (no key, always available)
+# Tier 3: Silent audio (absolute fallback via FFmpeg)
 
-def _get_tts():
-    """Check edge-tts is importable."""
+_KOKORO_MODEL   = "hexgrad/Kokoro-82M"         # HF repo (Gradio Space backed)
+_KOKORO_VOICE   = "af_sky"                      # British female, great for sports
+_EDGE_TTS_VOICE = "en-GB-RyanNeural"            # British male broadcaster fallback
+_HF_API_URL     = "https://api-inference.huggingface.co/models"
+
+_hf_token: str | None = os.getenv("HF_TOKEN")  # optional; raises rate limits
+
+
+def _kokoro_tts(text: str, output_path: str) -> bool:
+    """
+    Generate speech via the Kokoro-82M model on HuggingFace Inference API.
+    Requires `huggingface_hub` installed and optionally HF_TOKEN env var.
+    Returns True on success.
+    """
     try:
-        import edge_tts  # type: ignore   # noqa: F401
+        from huggingface_hub import InferenceClient  # type: ignore
+
+        client = InferenceClient(
+            provider="hf-inference",
+            api_key=_hf_token or "hf_anonymous",
+        )
+        # The TTS task returns raw audio bytes (WAV)
+        audio_bytes = client.text_to_speech(
+            text,
+            model=_KOKORO_MODEL,
+        )
+        if not audio_bytes:
+            logger.warning("Kokoro TTS returned empty response")
+            return False
+
+        # Determine if we got bytes or a file-like object
+        raw = audio_bytes if isinstance(audio_bytes, (bytes, bytearray)) else audio_bytes.read()
+        if len(raw) < 100:  # sanity check
+            logger.warning(f"Kokoro TTS audio too small ({len(raw)} bytes)")
+            return False
+
+        with open(output_path, "wb") as f:
+            f.write(raw)
+        logger.info(f"[TTS Tier-1] Kokoro-82M generated: {output_path}")
         return True
+
+    except ImportError:
+        logger.warning("huggingface_hub not installed — skipping Kokoro TTS")
+        return False
     except Exception as e:
-        logger.error(f"edge-tts not available: {e}")
+        logger.warning(f"Kokoro TTS failed ({type(e).__name__}): {e}")
         return False
 
 
-def tts_generate(text: str, output_path: str) -> bool:
-    """Generate TTS audio using Microsoft edge-tts neural voice."""
-    if not _get_tts():
-        return False
+def _edge_tts(text: str, output_path: str) -> bool:
+    """Generate TTS using Microsoft edge-tts neural voice."""
     try:
         import asyncio
         import edge_tts  # type: ignore
@@ -432,11 +483,41 @@ def tts_generate(text: str, output_path: str) -> bool:
             await communicate.save(output_path)
 
         asyncio.run(_synth())
-        logger.info(f"edge-tts generated: {output_path}")
+        logger.info(f"[TTS Tier-2] edge-tts generated: {output_path}")
         return True
-    except Exception as e:
-        logger.error(f"TTS generation failed: {e}")
+    except ImportError:
+        logger.warning("edge-tts not installed")
         return False
+    except Exception as e:
+        logger.warning(f"edge-tts failed: {e}")
+        return False
+
+
+def _get_tts():
+    """Check at least one TTS backend is available."""
+    try:
+        import edge_tts  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def tts_generate(text: str, output_path: str) -> bool:
+    """
+    Generate TTS audio — tries Kokoro first, falls back to edge-tts.
+    Both produce high-quality neural voices suitable for sports commentary.
+    """
+    # Tier 1 — Kokoro-82M (best quality, requires huggingface_hub)
+    if _kokoro_tts(text, output_path):
+        return True
+
+    # Tier 2 — Microsoft edge-tts (reliable, no key needed)
+    if _edge_tts(text, output_path):
+        return True
+
+    # Both failed
+    logger.error("All TTS backends failed")
+    return False
 
 import subprocess
 import tempfile
@@ -591,7 +672,7 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
     return f"http://localhost:4000/uploads/{reel_filename}"
 
 
-ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:4000/api/v1")
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:4000")
 
 # Use YOLOv8s (small) instead of nano - better GPU parallelization, faster on RTX GPUs
 # Downloads automatically on first run (~22MB)
@@ -1316,20 +1397,17 @@ def analyze_video(video_path: str, match_id: str):
                 motion_score = _get_motion_at(motion_windows, candidate_t) if motion_windows else 0.5
                 
                 # Only add very high motion moments as generic highlights
-                # Validate the motion peak with Gemini Vision AI instead of blindly accepting it
-                # Tactical cameras cause massive motion spikes during pans. Vision AI will reject these as "NONE".
-                val_result = validate_candidate_with_fallback(cap, candidate_t, fps, duration, motion_score)
-                if val_result and val_result["event_type"] != "NONE":
+                if motion_score >= CONFIG["MOTION_FALLBACK_THRESHOLD"]:
                     raw_events.append({
-                        "timestamp": val_result["timestamp"],
-                        "type": val_result["event_type"],
-                        "confidence": val_result["confidence"],
-                        "description": val_result["description"],
-                        "source": "vision_ai_fallback"
+                        "timestamp": round(candidate_t, 2),
+                        "type": "HIGHLIGHT",
+                        "confidence": round(min(0.7, motion_score), 3),
+                        "description": "High-action moment",
+                        "source": "motion_fallback"
                     })
                     existing_times.add(candidate_t)
                     
-                    if len(raw_events) >= CONFIG["MAX_MOTION_BASED_EVENTS"]:  # Cap total events
+                    if len(raw_events) >= CONFIG["MAX_MOTION_BASED_EVENTS"]:  # Cap at 8 total events
                         break
                         
             logger.info(f"Total events after fallback: {len(raw_events)}")
@@ -1370,6 +1448,30 @@ def analyze_video(video_path: str, match_id: str):
             match_id=match_id,
             output_dir=str(UPLOADS_DIR)
         )
+
+        # ── Heatmap Generation ────────────────────────────────────────────────
+        heatmap_url = None
+        top_speed_kmh = 0.0
+        if HEATMAP_AVAILABLE and track_frames:
+            try:
+                heatmap_filename = f"heatmap_{match_id}.png"
+                heatmap_path = str(UPLOADS_DIR / heatmap_filename)
+                success = generate_heatmap(
+                    track_frames=track_frames,
+                    output_path=heatmap_path,
+                    team_colors_rgb=team_colors,
+                )
+                if success:
+                    heatmap_url = f"http://localhost:4000/uploads/{heatmap_filename}"
+                    logger.info(f"Heatmap generated: {heatmap_url}")
+            except Exception as e:
+                logger.warning(f"Heatmap generation failed: {e}")
+
+            try:
+                top_speed_kmh = estimate_ball_speed(track_frames, fps)
+                logger.info(f"Top ball speed: {top_speed_kmh:.1f} km/h")
+            except Exception as e:
+                logger.warning(f"Ball speed estimation failed: {e}")
 
         # ── Emotion scores ────────────────────────────────────────────────────
         emotion_scores = [
@@ -1419,6 +1521,8 @@ def analyze_video(video_path: str, match_id: str):
             "highlightReelUrl": highlight_reel_url,
             "trackingData":  convert_numpy(track_frames),
             "teamColors":    convert_numpy(team_colors),   # [[R,G,B],[R,G,B]] team0 / team1
+            "heatmapUrl":    heatmap_url,
+            "topSpeedKmh":   round(float(top_speed_kmh), 1),
         }
 
         try:

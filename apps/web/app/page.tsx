@@ -3,78 +3,64 @@ import { VideoUpload, MatchDashboard } from "@/components/dynamic-sections";
 
 export default function Home() {
   return (
-    <main className="min-h-screen relative overflow-x-hidden bg-background text-foreground">
+    <div className="relative w-full overflow-hidden">
+      {/* ── Hero band ─────────────────────────────────── */}
+      <div className="relative min-h-[calc(100vh-80px)] flex flex-col items-center justify-center border-b border-border py-16">
+        {/* Full-width Background Image Layer */}
+        <div 
+          className="absolute inset-0 z-0 bg-cover bg-center"
+          style={{ backgroundImage: 'url("/favicons/image.png")' }}
+        />
+        {/* Blue Tint Overlay Layer */}
+        <div className="absolute inset-0 z-0 bg-background/85 backdrop-blur-[2px]" />
 
-      {/* ── Navigation ──────────────────────────────────── */}
-      <nav className="flex items-center justify-between py-6 px-8 max-w-[1440px] mx-auto">
-        <Link href="/" className="flex items-center gap-3 transition-opacity duration-200 hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-sm" aria-label="Go to homepage">
-          <div
-            className="size-8 flex items-center justify-center shrink-0 bg-primary"
-          >
-            <span className="font-display text-[#07080F] text-[22px] leading-none">M</span>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="font-display tracking-[0.12em] text-[20px] text-foreground">MATCHA</span>
-            <span className="font-display tracking-[0.12em] ml-1 text-[20px] text-primary">AI</span>
-          </div>
-          <div className="w-px h-4 mx-2 bg-border" />
-          <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-[0.14em]">DTU EDITION</span>
-        </Link>
-
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-2">
-            <span className="size-1.5 rounded-full animate-blink bg-destructive" />
-            <span className="font-mono text-[9px] text-destructive uppercase tracking-[0.14em]">LIVE</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="size-1.5 rounded-full bg-primary" />
-            <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-[0.14em]">SYS NOMINAL</span>
-          </div>
-        </div>
-      </nav>
-
-      <div className="relative z-10 max-w-[1440px] mx-auto px-8">
-
-        {/* ── Hero band ─────────────────────────────────── */}
-        <div className="py-12 pb-8 border-b border-border">
-          <div className="flex flex-col lg:flex-row items-end justify-between gap-8 flex-wrap">
-            <div>
-              <div className="flex items-center gap-3 mb-5">
-                <span className="chip chip-green">CH&nbsp;01 ▸ ANALYSIS PIPELINE</span>
-              </div>
-              <h1
-                className="font-display leading-none text-[clamp(52px,7vw,92px)] text-foreground"
+        {/* Hero Content Layer */}
+        <div className="relative z-10 max-w-[1440px] mx-auto px-4 sm:px-8 w-full flex flex-col items-center text-center gap-8 md:gap-10">
+          
+          <div className="flex flex-col items-center opacity-0" style={{ animation: "fadeup 0.8s ease-out forwards" }}>
+            <h1 className="font-display flex flex-col items-center leading-[0.8] text-[clamp(42px,11vw,120px)] text-foreground shadow-sm">
+              <span>MATCH</span>
+              <span 
+                className="text-primary drop-shadow-[0_0_20px_rgba(var(--color-primary),0.6)] italic tracking-normal normal-case text-[clamp(32px,8vw,90px)] -mt-2 sm:-mt-4"
+                style={{ fontFamily: "Georgia, 'Times New Roman', Times, serif" }}
               >
-                MATCH<br />
-                <span className="text-primary">INTELLIGENCE</span>
-              </h1>
-            </div>
-
-            {/* Stat counters */}
-            <div className="flex gap-8 pb-1 shrink-0">
-              {[
-                { n: "09", label: "EVENTS / MATCH" },
-                { n: "04", label: "HIGHLIGHT REELS" },
-                { n: "∞",  label: "HOURS SAVED" },
-              ].map((s) => (
-                <div key={s.label} className="text-right pr-8 border-r last:border-0 last:pr-0 border-border">
-                  <div className="font-display leading-none text-[46px] text-primary">{s.n}</div>
-                  <div className="font-mono mt-1 text-[9px] text-muted-foreground uppercase tracking-[0.12em]">{s.label}</div>
-                </div>
-              ))}
-            </div>
+                Intelligence
+              </span>
+            </h1>
           </div>
 
-          <p className="font-heading mt-5 max-w-xl leading-relaxed text-[15px] font-normal text-muted-foreground">
+          <p 
+            className="font-heading max-w-2xl leading-relaxed text-[15px] sm:text-[19px] font-medium text-foreground/90 drop-shadow-md opacity-0"
+            style={{ animation: "fadeup 0.8s ease-out 0.2s forwards" }}
+          >
             Upload raw match footage. The AI pipeline detects goals, fouls, saves &amp; tackles —
             scores each moment — and builds highlight reels with live neural commentary.
           </p>
-        </div>
 
-        {/* ── Main grid ─────────────────────────────────── */}
-        <div
-          className="grid gap-0 grid-cols-1 lg:grid-cols-[minmax(0,500px)_1fr]"
-        >
+          {/* Stat counters */}
+          <div 
+            className="flex w-full md:w-auto items-center justify-center gap-4 sm:gap-16 mt-4 backdrop-blur-md bg-background/50 px-6 sm:px-12 py-4 sm:py-6 rounded-xl border border-border/60 shadow-2xl relative overflow-hidden group opacity-0"
+            style={{ animation: "fadeup 0.8s ease-out 0.4s forwards" }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            {[
+              { n: "09", label: "EVENTS" },
+              { n: "04", label: "REELS" },
+              { n: "∞",  label: "SAVED" },
+            ].map((s) => (
+              <div key={s.label} className="text-center pr-4 sm:pr-16 last:pr-0 border-r last:border-r-0 border-border/60 relative z-10 flex-1 sm:flex-none">
+                <div className="font-display leading-none text-[26px] sm:text-[54px] text-primary drop-shadow-[0_0_12px_rgba(var(--color-primary),0.5)]">{s.n}</div>
+                <div className="font-mono mt-1 sm:mt-2 text-[8px] sm:text-[10.5px] text-muted-foreground uppercase tracking-[0.16em] font-bold">{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── Main grid ─────────────────────────────────── */}
+      <div className="relative z-10 max-w-[1440px] mx-auto px-8 w-full">
+        <div className="grid gap-0 grid-cols-1 lg:grid-cols-[minmax(0,500px)_1fr]">
           {/* LEFT — Upload */}
           <div className="lg:border-r border-b lg:border-b-0 py-10 lg:pr-10 border-border">
             <div className="flex items-center gap-3 mb-6">
@@ -113,10 +99,6 @@ export default function Home() {
           </div>
         </div>
       </div>
-
-      {/* Bottom rule */}
-      <div className="fixed bottom-0 left-0 right-0 h-px z-50 bg-border" />
-    </main>
+    </div>
   );
 }
-

@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Bebas_Neue, Barlow_Condensed, DM_Mono } from "next/font/google";
+import { Navbar } from "@/components/layout/Navbar";
+import { Footer } from "@/components/layout/Footer";
+import { SplashScreen } from "@/components/layout/SplashScreen";
 import "./globals.css";
 
 const bebas = Bebas_Neue({
@@ -24,6 +27,14 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: "Matcha AI — Match Intelligence",
   description: "AI-powered sports event detection, highlights & commentary",
+  icons: {
+    icon: [
+      { url: "/favicons/favicon-32x32.png", sizes: "32x32" },
+      { url: "/favicons/favicon-16x16.png", sizes: "16x16" },
+    ],
+    apple: "/favicons/apple-touch-icon.png",
+  },
+  manifest: "/favicons/site.webmanifest",
 };
 
 export default function RootLayout({
@@ -33,8 +44,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${bebas.variable} ${barlow.variable} ${dmMono.variable} antialiased`}>
-        {children}
+      <head />
+      <body className={`${bebas.variable} ${barlow.variable} ${dmMono.variable} antialiased min-h-screen flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary`}>
+        <SplashScreen />
+        <div className="flex-1 flex flex-col relative w-full">
+          <Navbar />
+          <main className="flex-1 flex flex-col items-stretch w-full relative z-10">
+            {children}
+          </main>
+          <Footer />
+        </div>
       </body>
     </html>
   );
