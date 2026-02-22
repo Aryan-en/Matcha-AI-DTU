@@ -7,13 +7,7 @@ const nextConfig = {
         '@react-pdf/renderer',
         'socket.io-client',
         'engine.io-client',
-        'engine.io-parser',
-        '@tensorflow-models/coco-ssd',
-        '@tensorflow/tfjs',
-        '@tensorflow/tfjs-core',
-        '@tensorflow/tfjs-converter',
-        '@tensorflow/tfjs-backend-webgl',
-        '@tensorflow/tfjs-backend-cpu'
+        'engine.io-parser'
     ],
     webpack: (config) => {
         return config;

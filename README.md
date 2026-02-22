@@ -83,110 +83,183 @@ graph TD
 
 ## 🚀 Quick Start Guide
 
+> For a full step-by-step beginner walkthrough, see [SETUP.md](./SETUP.md).
+
 ### Prerequisites
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Node.js | 18+ | Frontend & Orchestrator |
-| Python | 3.11+ | Inference service |
-| Docker Desktop | Latest | Required for PostgreSQL & Redis containers |
-| FFmpeg | Latest | Required for video processing & TTS muxing |
-| NVIDIA GPU | CUDA 12.4 | Recommended for fast PyTorch/YOLO acceleration |
+| Tool | Minimum Version | Install Link |
+|------|----------------|--------------|
+| **Node.js** | 18+ | https://nodejs.org (choose LTS) |
+| **Python** | 3.9+ | https://www.python.org/downloads/ |
+| **Docker Desktop** | Latest | https://www.docker.com/products/docker-desktop/ |
+| **FFmpeg** | Latest | https://ffmpeg.org/download.html |
+| **NVIDIA GPU + CUDA** | 12.4 *(optional)* | Boosts YOLO inference speed |
 
-### 1. Launch Infrastructure
-Start the database and Redis cache utilizing Docker Compose:
+> ⚠️ **Python Note**: The local inference engine has been tested and confirmed working on **Python 3.9** (the macOS system default). Python 3.10+ also works. Do **not** use 3.7 or 3.8.
+
+---
+
+### Step 1 — Clone & Prepare
+
 ```bash
-docker compose up -d
+git clone https://github.com/YOUR-ORG/Matcha-AI-DTU.git
+cd Matcha-AI-DTU
+
+# Create the uploads directory (git-ignored, must be created manually)
+mkdir uploads
 ```
-*This starts PostgreSQL on port 5433 and Redis on port 6380.*
 
-### 2. Install & Initialize Monorepo
-Install all dependencies across the entire monorepo:
+---
+
+### Step 2 — Start Infrastructure (Docker)
+
+Make sure **Docker Desktop is open and running**, then:
+
 ```bash
+docker-compose up -d --build
+```
+
+This starts:
+- **PostgreSQL** on port `5433` (not 5432 — intentional to avoid local conflicts)
+- **Redis** on port `6380`
+
+Verify containers are up:
+```bash
+docker ps
+# Both matcha_postgres and matcha_redis should show "Up"
+```
+
+---
+
+### Step 3 — Install Node.js Dependencies & Build
+
+```bash
+# Install all monorepo packages
 npm install
+
+# Build all shared TypeScript packages (@matcha/env, @matcha/ui, @matcha/shared, etc.)
+npx turbo run build
 ```
 
-Generate the shared database client and run migrations:
+Then apply the database schema:
+
 ```bash
-# Generate Prisma Client
-npx turbo run generate
-
-# Deploy Migrations
-npx turbo run db:migrate
+cd services/orchestrator
+npx prisma migrate deploy   # use 'migrate dev' on a fresh local DB
+cd ../..
 ```
 
-### 3. Setup Python Inference Environment
-The inference service requires its own Python environment with specific dependencies:
+---
+
+### Step 4 — Configure Environment Variables
+
+**`services/orchestrator/.env`**
+```env
+PORT=4000
+CORS_ORIGIN=http://localhost:3000
+DATABASE_URL="postgresql://matcha_user:matcha_password@localhost:5433/matcha_db?schema=public"
+INFERENCE_URL=http://localhost:8000
+GEMINI_API_KEY=your_google_ai_studio_key   # https://aistudio.google.com/app/apikey
+HF_TOKEN=hf_your_token_here               # optional, from huggingface.co/settings/tokens
+```
+
+**`apps/web/.env.local`**
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
+```
+
+**`services/inference/.env`**
+```env
+ORCHESTRATOR_URL=http://localhost:4000/api/v1
+GEMINI_API_KEY=your_google_ai_studio_key
+HF_TOKEN=hf_your_token_here
+```
+
+---
+
+### Step 5 — Set Up the Python Inference Engine
+
 ```bash
 cd services/inference
+```
 
-# Create & activate a Python 3.11 virtual environment
+**macOS / Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+**Windows (PowerShell):**
+```powershell
 py -3.11 -m venv venv
-.\venv\Scripts\activate        # Windows PowerShell
-# source venv/bin/activate     # Linux / macOS
+.\venv\Scripts\activate
+```
 
-# Upgrade pip
+Then install dependencies:
+```bash
 pip install --upgrade pip
 
-# Install PyTorch with CUDA 12.4 support (if you have an NVIDIA GPU)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# CPU only (works on all machines):
+pip install -r requirements.txt
 
-# Install the rest of the dependencies
+# OR — with CUDA 12.4 GPU acceleration (NVIDIA only):
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
-
-**`services/orchestrator/.env`** (create this file):
-```env
-DATABASE_URL="postgresql://matcha_user:matcha_password@localhost:5433/matcha_db?schema=public"
-HF_TOKEN=hf_your_huggingface_token_here
-CORS_ORIGIN=http://localhost:3000
-INFERENCE_URL=http://localhost:8000
-PORT=4000
-```
-
-**`services/inference/.env`** (create this file):
-```env
-GEMINI_API_KEY=your_google_ai_studio_api_key
-HF_TOKEN=hf_your_huggingface_token_here
-ORCHESTRATOR_URL=http://localhost:4000
-```
-
-> 🔑 Get a free Gemini API key at [Google AI Studio](https://makersuite.google.com/app/apikey).  
-> 🔑 Get a free HuggingFace token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — select "Read" scope.  
-> The `HF_TOKEN` is optional but highly recommended — without it, Kokoro-82M TTS runs at anonymous rate limits.
-
-### 5. Start Development Environment
-Matcha utilizes **Turborepo** to launch the entire stack (Frontend, Orchestrator, Inference) in a single command from the root:
+Go back to project root:
 ```bash
+cd ../..
+```
+
+---
+
+### Step 6 — Run the Full Stack
+
+**One command starts everything — Frontend, Orchestrator, AND the Python Inference Engine:**
+
+```bash
+# From project root
 npx turbo run dev
 ```
 
-This will automatically handle cross-package dependencies and output logs from all services in parallel.
+> This works because `services/inference/package.json` now has a `dev` script that calls `./venv/bin/python -m uvicorn ...` directly — no shell activation needed. Turbo runs all three services concurrently and streams their logs together.
 
-Alternatively, run each service manually in separate terminals:
+> **First run only**: YOLO will automatically download model weights (~22 MB for `yolov8s-pose.pt` and ~6 MB for `yolov8n.pt`). This takes ~30 seconds with a good internet connection and is cached for all future runs.
 
-**Terminal 1 — Orchestrator (Port 4000)**
+> **Windows users**: The `dev` script uses `./venv/bin/python` which is the macOS/Linux path. On Windows, run the inference manually:
+> ```powershell
+> cd services/inference
+> .\venv\Scripts\activate
+> python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+> ```
+> Or run `npm run dev:win` from inside `services/inference`.
+
+**If you prefer separate terminals:**
+
+| Terminal | Command | Port |
+|----------|---------|------|
+| Frontend | `cd apps/web && npm run dev` | 3000 |
+| Orchestrator | `cd services/orchestrator && npm run dev` | 4000 |
+| Inference (macOS/Linux) | `cd services/inference && ./venv/bin/python -m uvicorn main:app --port 8000 --reload` | 8000 |
+| Inference (Windows) | `cd services/inference && .\venv\Scripts\python.exe -m uvicorn main:app --port 8000` | 8000 |
+
+---
+
+### Step 7 — Verify
+
 ```bash
-cd services/orchestrator
-npm run start:dev
+# Check Orchestrator is healthy
+curl http://localhost:4000/api/v1/health
+# Expected: {"status":"ok","service":"orchestrator",...}
+
+# Check Inference is alive
+curl http://localhost:8000/
 ```
 
-**Terminal 2 — Inference Engine (Port 8000)**
-```bash
-cd services/inference
-.\venv\Scripts\activate
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
+Then open **[http://localhost:3000](http://localhost:3000)** (or `3001` if 3000 was busy — check terminal output).
 
-**Terminal 3 — Frontend Web App (Port 3000)**
-```bash
-cd apps/web
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+---
 
 ---
 

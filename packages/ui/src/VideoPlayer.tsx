@@ -8,16 +8,17 @@ import {
   SkipForward, SkipBack, Gauge, Film, Volume1, MessageSquare, Cpu,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatTime, MatchEvent, Highlight, EVENT_CONFIG, DEFAULT_EVENT_CONFIG } from "@matcha/shared";
+import { formatTime, MatchEvent, Highlight, TrackFrame, EVENT_CONFIG, DEFAULT_EVENT_CONFIG } from "@matcha/shared";
 import { BRAND_COLORS } from "@matcha/theme";
 
-interface Props {
+export interface VideoPlayerProps {
   src: string;
-  events:        MatchEvent[];
-  highlights:    Highlight[];
+  events: MatchEvent[];
+  highlights: Highlight[];
   onTimeUpdate?: (t: number) => void;
-  seekFnRef?:         React.MutableRefObject<(t: number) => void>;
+  seekFnRef?: React.MutableRefObject<(t: number) => void>;
   initialTeamColors?: number[][] | null;
+  trackingData?: TrackFrame[] | null;
 }
 
 // ── In-browser K-means (2 clusters) ─────────────────────────────────────────
@@ -46,10 +47,10 @@ function sampleJersey(
   video: HTMLVideoElement, bx: number, by: number, bw: number, bh: number,
 ): [number, number, number] | null {
   try {
-    if (!_offscreen) { 
-      _offscreen = document.createElement("canvas"); 
-      _offscreen.width = 1; 
-      _offscreen.height = 1; 
+    if (!_offscreen) {
+      _offscreen = document.createElement("canvas");
+      _offscreen.width = 1;
+      _offscreen.height = 1;
     }
     const ctx = _offscreen.getContext("2d", { willReadFrequently: true })!;
     const sw = bw * 0.60, sh = bh * 0.35;
@@ -63,9 +64,9 @@ function sampleJersey(
 const THEME_TO_HEX: Record<string, string> = {
   success: BRAND_COLORS.success,
   warning: BRAND_COLORS.warning,
-  error:   BRAND_COLORS.error,
-  info:    BRAND_COLORS.info,
-  accent:  BRAND_COLORS.primary,
+  error: BRAND_COLORS.error,
+  info: BRAND_COLORS.info,
+  accent: BRAND_COLORS.primary,
   neutral: BRAND_COLORS.muted,
 };
 
@@ -90,41 +91,44 @@ function speak(text: string) {
 const stopSpeaking = () =>
   typeof window !== "undefined" && window.speechSynthesis?.cancel();
 
-interface Detection { bbox: [number,number,number,number]; class: string; score: number; }
+interface Detection { bbox: [number, number, number, number]; class: string; score: number; }
 
 export function VideoPlayer({
-  src, events, highlights, onTimeUpdate, seekFnRef, initialTeamColors,
-}: Props) {
-  const wrapRef    = useRef<HTMLDivElement>(null);
-  const vidRef     = useRef<HTMLVideoElement>(null);
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
-  const rafRef     = useRef<number>(0);
-  const modelRef   = useRef<any>(null);
-  const predsRef   = useRef<Detection[]>([]);
+  src, events, highlights, onTimeUpdate, seekFnRef, initialTeamColors, trackingData,
+}: VideoPlayerProps) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const vidRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number>(0);
+  const modelRef = useRef<any>(null);
+  const predsRef = useRef<Detection[]>([]);
   const detectingRef = useRef(false);
-  const frameIdx   = useRef(0);
-  const jerseyBuf  = useRef<number[][]>([]);
-  const teamCols   = useRef<[number[], number[]]>(
+  const frameIdx = useRef(0);
+  const jerseyBuf = useRef<number[][]>([]);
+  const teamCols = useRef<[number[], number[]]>(
     initialTeamColors?.length === 2
       ? [initialTeamColors[0], initialTeamColors[1]]
       : [[220, 50, 50], [50, 100, 220]]
   );
   const seenEvents = useRef<Set<string>>(new Set());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seekRef    = useRef<HTMLDivElement>(null);
+  const seekRef = useRef<HTMLDivElement>(null);
 
-  const [playing,      setPlaying]      = useState(false);
-  const [current,      setCurrent]      = useState(0);
-  const [duration,     setDuration]     = useState(0);
-  const [volume,       setVolume]       = useState(1);
-  const [muted,        setMuted]        = useState(false);
-  const [speed,        setSpeed]        = useState(1);
-  const [fullscreen,   setFullscreen]   = useState(false);
+  // Tracking data index for fast lookup
+  const trackIdx = useRef(0);
+
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [fullscreen, setFullscreen] = useState(false);
   const [showTracking, setShowTracking] = useState(true);
-  const [showSpeed,    setShowSpeed]    = useState(false);
-  const [toast,        setToast]        = useState<string | null>(null);
-  const [modelState,   setModelState]   = useState<"loading"|"ready"|"error">("loading");
-  const [sampleCount,  setSampleCount]  = useState(0);
+  const [showSpeed, setShowSpeed] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [modelState, setModelState] = useState<"loading" | "ready" | "error">("loading");
+  const [sampleCount, setSampleCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,10 +172,10 @@ export function VideoPlayer({
 
   const drawLoop = useCallback(() => {
     const canvas = canvasRef.current;
-    const video  = vidRef.current;
+    const video = vidRef.current;
     if (!canvas || !video) { rafRef.current = requestAnimationFrame(drawLoop); return; }
     const ctx = canvas.getContext("2d");
-    if (!ctx)  { rafRef.current = requestAnimationFrame(drawLoop); return; }
+    if (!ctx) { rafRef.current = requestAnimationFrame(drawLoop); return; }
 
     const rect = video.getBoundingClientRect();
     if (canvas.width !== Math.round(rect.width) || canvas.height !== Math.round(rect.height)) {
@@ -183,18 +187,19 @@ export function VideoPlayer({
     if (frameIdx.current % 6 === 0 && showTracking) runDetection();
 
     if (showTracking && video.readyState >= 2) {
-      const nW = video.videoWidth  || rect.width;
+      const nW = video.videoWidth || rect.width;
       const nH = video.videoHeight || rect.height;
       const nR = nW / nH, eR = rect.width / rect.height;
       let dW: number, dH: number, oX: number, oY: number;
-      if (nR > eR) { dW = rect.width;  dH = dW / nR; oX = 0; oY = (rect.height - dH) / 2; }
-      else         { dH = rect.height; dW = dH * nR; oY = 0; oX = (rect.width  - dW) / 2; }
+      if (nR > eR) { dW = rect.width; dH = dW / nR; oX = 0; oY = (rect.height - dH) / 2; }
+      else { dH = rect.height; dW = dH * nR; oY = 0; oX = (rect.width - dW) / 2; }
       const sX = dW / nW, sY = dH / nH;
 
+      // ── Local Detection (Coco-SSD Fallback) ──────────────────────────────
       for (const p of predsRef.current) {
         const [bx, by, bw, bh] = p.bbox;
         const cx = oX + bx * sX, cy = oY + by * sY;
-        const cw = bw * sX,      ch = bh * sY;
+        const cw = bw * sX, ch = bh * sY;
 
         if (p.class === "person" && p.score >= 0.45) {
           const col = sampleJersey(video, bx, by, bw, bh);
@@ -212,22 +217,68 @@ export function VideoPlayer({
         if (p.class === "sports ball" && p.score >= 0.30) {
           const bCx = oX + (bx + bw / 2) * sX, bCy = oY + (by + bh / 2) * sY;
           const r = Math.max(7, (bw * sX) / 2);
-          const grd = ctx.createRadialGradient(bCx, bCy, 0, bCx, bCy, r * 3);
-          grd.addColorStop(0, "rgba(190, 242, 100, 0.4)"); 
-          grd.addColorStop(1, "rgba(190, 242, 100, 0)");
-          ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(bCx, bCy, r * 3, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = BRAND_COLORS.primary; ctx.strokeStyle = BRAND_COLORS.white; ctx.lineWidth = 1.5;
           ctx.beginPath(); ctx.arc(bCx, bCy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = BRAND_COLORS.white;
-          ctx.font = `bold ${Math.max(8, r * 0.8)}px monospace`;
-          ctx.textAlign = "center";
-          ctx.fillText(`${Math.round(p.score * 100)}%`, bCx, bCy - r - 3);
-          ctx.textAlign = "left";
+        }
+      }
+
+      // ── Backend Tracking Overlay (Priority) ──────────────────────────────
+      if (trackingData && trackingData.length > 0) {
+        // Simple linear search for the closest frame
+        while (trackIdx.current < trackingData.length - 1 && trackingData[trackIdx.current].t < video.currentTime) {
+          trackIdx.current++;
+        }
+        while (trackIdx.current > 0 && trackingData[trackIdx.current].t > video.currentTime) {
+          trackIdx.current--;
+        }
+
+        const currentFrame = trackingData[trackIdx.current];
+        if (currentFrame && Math.abs(currentFrame.t - video.currentTime) < 0.2) {
+          const sX_norm = dW, sY_norm = dH; // Normalized coords from backend are 0-1
+
+          // Draw Players
+          for (const p of currentFrame.p) {
+            const [nx, ny, nw, nh, tid, team] = p;
+            const px = oX + nx * sX_norm, py = oY + ny * sY_norm;
+            const pw = nw * sX_norm, ph = nh * sY_norm;
+
+            const color = team === 0 ? "rgba(220, 50, 50, 0.9)" : "rgba(50, 100, 220, 0.9)";
+            ctx.strokeStyle = color; ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(px + pw / 2, py + ph, pw / 3, pw / 6, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = color;
+            ctx.font = "bold 10px monospace";
+            ctx.fillText(`#${tid}`, px, py - 5);
+          }
+
+          // Draw Ball
+          for (const b of currentFrame.b) {
+            const [nx, ny, nw, nh] = b;
+            const bx = oX + nx * sX_norm, by = oY + ny * sY_norm;
+            const bw = nw * sX_norm, bh = nh * sY_norm;
+            const bCx = bx + bw / 2, bCy = by + bh / 2;
+
+            ctx.fillStyle = BRAND_COLORS.primary;
+            ctx.shadowBlur = 10; ctx.shadowColor = BRAND_COLORS.primary;
+            ctx.beginPath(); ctx.arc(bCx, bCy, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+            ctx.setLineDash([3, 2]);
+            ctx.beginPath(); ctx.arc(bCx, bCy, 12, 0, Math.PI * 2); ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 11px monospace";
+            ctx.fillText(`LIVE BALL`, bCx + 15, bCy);
+          }
         }
       }
     }
     rafRef.current = requestAnimationFrame(drawLoop);
-  }, [showTracking, runDetection]);
+  }, [showTracking, runDetection, trackingData]);
 
   useEffect(() => {
     rafRef.current = requestAnimationFrame(drawLoop);
@@ -242,7 +293,7 @@ export function VideoPlayer({
     onTimeUpdate?.(t);
     for (const ev of events) {
       if (!seenEvents.current.has(ev.id) &&
-          ev.timestamp >= t - 0.8 && ev.timestamp <= t + 0.8) {
+        ev.timestamp >= t - 0.8 && ev.timestamp <= t + 0.8) {
         seenEvents.current.add(ev.id);
         setToast(ev.commentary ?? `${ev.type} @ ${formatTime(ev.timestamp)}`);
         if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -256,11 +307,11 @@ export function VideoPlayer({
     const onKey = (e: KeyboardEvent) => {
       const v = vidRef.current;
       if (!v || (e.target as HTMLElement).tagName === "INPUT") return;
-      if (e.key === " ")        { e.preventDefault(); togglePlay(); }
+      if (e.key === " ") { e.preventDefault(); togglePlay(); }
       if (e.key === "ArrowRight") v.currentTime += 5;
-      if (e.key === "ArrowLeft")  v.currentTime -= 5;
-      if (e.key === "m")        { toggleMute(); }
-      if (e.key === "f")        { toggleFullscreen(); }
+      if (e.key === "ArrowLeft") v.currentTime -= 5;
+      if (e.key === "m") { toggleMute(); }
+      if (e.key === "f") { toggleFullscreen(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -367,7 +418,7 @@ export function VideoPlayer({
             ${playing ? "opacity-0 group-hover:opacity-0" : "opacity-100"}`}
         >
           {!playing && (
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-2xl"
@@ -379,7 +430,7 @@ export function VideoPlayer({
 
         <AnimatePresence>
           {toast && (
-            <motion.div 
+            <motion.div
               initial={{ y: -20, opacity: 0, x: "-50%" }}
               animate={{ y: 0, opacity: 1, x: "-50%" }}
               exit={{ y: -20, opacity: 0, x: "-50%" }}
@@ -394,9 +445,9 @@ export function VideoPlayer({
 
         <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 flex flex-col items-end gap-1.5 sm:gap-2">
           <div className={`flex items-center gap-1.5 text-[9px] sm:text-[10px] uppercase font-bold px-2 py-1 rounded-full backdrop-blur-md border shadow-lg
-            ${modelState === "ready"   ? "bg-emerald-950/60 border-emerald-500/30 text-emerald-400"
-            : modelState === "loading" ? "bg-zinc-900/60 border-zinc-700/50 text-zinc-400 animate-pulse"
-            : "bg-red-950/60 border-red-500/30 text-red-400"}`}
+            ${modelState === "ready" ? "bg-emerald-950/60 border-emerald-500/30 text-emerald-400"
+              : modelState === "loading" ? "bg-zinc-900/60 border-zinc-700/50 text-zinc-400 animate-pulse"
+                : "bg-red-950/60 border-red-500/30 text-red-400"}`}
           >
             <Cpu className="w-3.5 h-3.5" />
             {modelState === "ready" ? "AI Pipeline Live" : modelState === "loading" ? "Initializing AI…" : "AI Offline"}
@@ -409,10 +460,10 @@ export function VideoPlayer({
             <span className={`w-2 h-2 rounded-full transition-colors ${showTracking ? "bg-primary animate-pulse" : "bg-zinc-600"}`} />
             {showTracking ? "Visual Elements ON" : "Visual Elements OFF"}
           </button>
-          
+
           <AnimatePresence>
             {sampleCount >= 40 && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="flex gap-2 items-center bg-zinc-900/60 border border-white/10 px-2.5 py-1.5 rounded-full backdrop-blur-md shadow-lg"
@@ -432,27 +483,41 @@ export function VideoPlayer({
         </div>
       </div>
 
-      <div className="bg-zinc-950 border-t border-white/5 px-3 sm:px-4 pt-3 pb-4 space-y-3">
+      <div className="bg-zinc-950 border-t border-white/5 px-3 sm:px-4 pt-4 pb-4 space-y-3">
+        {/* Seekbar with enhanced visibility */}
         <div
           ref={seekRef}
-          className="relative h-6 flex items-center cursor-pointer group/seek"
+          className="relative h-8 flex items-center cursor-pointer group/seek rounded-lg px-2 py-1 bg-zinc-900/50 hover:bg-zinc-900/80 transition-colors"
           onClick={onSeekClick}
         >
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-zinc-800/50 rounded-full overflow-hidden">
+          {/* Background track */}
+          <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 h-2 bg-zinc-700 rounded-full overflow-hidden border border-zinc-600/50">
+            {/* Progress bar */}
             <motion.div
-              className={`h-full bg-gradient-to-r from-primary to-primaryDark rounded-full transition-none`}
+              className={`h-full bg-linear-to-r from-primary via-primary to-primaryDark rounded-full shadow-lg shadow-primary/50`}
               style={{ width: `${progressPct}%` }}
               layoutId="seek-progress"
             />
           </div>
 
+          {/* Seek handle */}
           <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full
-                       bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-transform group-hover/seek:scale-125 z-10"
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 sm:w-5 sm:h-5 rounded-full
+                       bg-white shadow-[0_0_12px_rgba(255,255,255,0.8),0_0_24px_rgba(59,130,246,0.5)] 
+                       transition-all duration-150 group-hover/seek:scale-150 group-hover/seek:shadow-[0_0_20px_rgba(255,255,255,1),0_0_40px_rgba(59,130,246,0.8)] 
+                       z-20 border border-blue-400/50"
             style={{ left: `${progressPct}%` }}
           />
 
-          {duration > 0 && events.map((ev) => {
+          {/* Current time label above handle */}
+          <div
+            className="absolute -top-7 -translate-x-1/2 text-xs font-bold text-white bg-black/80 px-2 py-1 rounded opacity-0 group-hover/seek:opacity-100 transition-opacity whitespace-nowrap z-30 pointer-events-none"
+            style={{ left: `${progressPct}%` }}
+          >
+            {formatTime(current)} / {formatTime(duration)}
+          </div>
+
+          {duration > 0 && events.map((ev: MatchEvent) => {
             const pct = (ev.timestamp / duration) * 100;
             const col = getEventColor(ev.type);
             return (
@@ -467,19 +532,24 @@ export function VideoPlayer({
             );
           })}
 
-          {duration > 0 && highlights.map((h) => (
+          {duration > 0 && highlights.map((h: Highlight) => (
             <div
               key={h.id}
               className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-warning/20 rounded-sm pointer-events-none z-5"
               style={{
-                left:  `${(h.startTime / duration) * 100}%`,
+                left: `${(h.startTime / duration) * 100}%`,
                 width: `${((h.endTime - h.startTime) / duration) * 100}%`,
               }}
             />
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 justify-between">
+          {/* Time display */}
+          <div className="text-xs sm:text-sm font-bold text-zinc-400 font-mono tabular-nums order-2">
+            {formatTime(current)} / {formatTime(duration)}
+          </div>
+
           <div className="flex items-center gap-2 sm:gap-3 order-1">
             <button
               onClick={() => seekTo(current - 10)}
@@ -493,7 +563,7 @@ export function VideoPlayer({
               className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white text-black flex items-center justify-center
                          hover:bg-zinc-200 transition-all hover:scale-105 active:scale-95 shadow-lg shrink-0"
             >
-              {playing ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play  className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
+              {playing ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
             </button>
 
             <button
@@ -531,7 +601,7 @@ export function VideoPlayer({
             </button>
             <AnimatePresence>
               {showSpeed && (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}

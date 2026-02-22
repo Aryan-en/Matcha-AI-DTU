@@ -1,0 +1,25 @@
+/** HTTP API client for the Matcha AI orchestrator.
+ *  Import this in apps/web and apps/mobile — pass the base URL from your env/constants.
+ */
+import type { MatchSummary, MatchDetail } from "./types";
+export declare function createApiClient(baseUrl: string): {
+    /** Helper to resolve relative asset paths (e.g. /uploads/...) to full URLs */
+    getAssetUrl: (path: string | null) => string;
+    getMatches: () => Promise<MatchSummary[]>;
+    getMatch: (id: string) => Promise<MatchDetail>;
+    deleteMatch: (id: string) => Promise<Response>;
+    reanalyze: (id: string) => Promise<Response>;
+    uploadVideo: (file: File | Blob, onProgress?: (pct: number) => void) => Promise<MatchSummary>;
+    uploadYoutube: (url: string, startTime?: number, endTime?: number) => Promise<MatchSummary>;
+    login: (body: any) => Promise<{
+        access_token: string;
+        user: any;
+    }>;
+    register: (body: any) => Promise<{
+        access_token: string;
+        user: any;
+    }>;
+    getMe: () => Promise<any>;
+};
+export type ApiClient = ReturnType<typeof createApiClient>;
+//# sourceMappingURL=api.d.ts.map

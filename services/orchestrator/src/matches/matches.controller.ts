@@ -24,7 +24,7 @@ import 'multer';
 
 @Controller('matches')
 export class MatchesController {
-  constructor(private readonly matchesService: MatchesService) {}
+  constructor(private readonly matchesService: MatchesService) { }
 
   // Stricter rate limit on upload — 5 uploads per minute to protect disk + inference queue
   @UseGuards(JwtAuthGuard)
@@ -52,20 +52,37 @@ export class MatchesController {
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('youtube')
-  async uploadYoutube(@Body() body: { url: string }, @Req() req: any): Promise<Match> {
+  async uploadYoutube(
+    @Body() body: { url: string; start_time?: number; end_time?: number },
+    @Req() req: any
+  ): Promise<Match> {
     if (!body || !body.url) {
       throw new BadRequestException('YouTube URL is required');
     }
+    // Validate URL format
     try {
-      // Basic validation for youtube/youtu.be domains
       const url = new URL(body.url);
       if (!url.hostname.includes('youtube.com') && !url.hostname.includes('youtu.be')) {
-        throw new BadRequestException('Invalid YouTube URL');
+        throw new BadRequestException('URL must be a YouTube link (youtube.com or youtu.be)');
       }
-    } catch {
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
       throw new BadRequestException('Invalid URL format');
     }
-    return this.matchesService.createFromYoutube(body.url, req.user.userId);
+    // Validate time range if provided
+    if (body.start_time !== undefined && body.start_time < 0) {
+      throw new BadRequestException('start_time must be >= 0');
+    }
+    if (body.end_time !== undefined && body.end_time <= 0) {
+      throw new BadRequestException('end_time must be > 0');
+    }
+    if (body.start_time !== undefined && body.end_time !== undefined && body.start_time >= body.end_time) {
+      throw new BadRequestException('start_time must be less than end_time');
+    }
+    if (body.end_time !== undefined && body.end_time > 10800) {
+      throw new BadRequestException('end_time cannot exceed 3 hours (10800 seconds)');
+    }
+    return this.matchesService.createFromYoutube(body.url, req.user.userId, body.start_time, body.end_time);
   }
 
   @UseGuards(OptionalJwtAuthGuard)

@@ -15,8 +15,6 @@
     "@matcha/typescript-config": "*",
     "@matcha/ui": "*",
     "@react-pdf/renderer": "^4.3.2",
-    "@tensorflow-models/coco-ssd": "^2.2.3",
-    "@tensorflow/tfjs": "^4.22.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.34.3",
     "lucide-react": "^0.574.0",

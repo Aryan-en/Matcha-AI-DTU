@@ -28,7 +28,7 @@ export class MatchesService {
     if (file.size > 5000000000) {
       throw new Error("File exceeds 5GB limit");
     }
-    
+
     let filePath: string;
     let fileName: string;
 
@@ -40,7 +40,7 @@ export class MatchesService {
       // Fallback for memoryStorage
       fileName = `${Date.now()}-${file.originalname}`;
       const uploadsDir = path.join(process.cwd(), '..', '..', 'uploads');
-      
+
       try {
         if (!fs.existsSync(uploadsDir)) {
           fs.mkdirSync(uploadsDir, { recursive: true });
@@ -72,7 +72,7 @@ export class MatchesService {
     return match;
   }
 
-  async createFromYoutube(url: string, userId: string): Promise<Match> {
+  async createFromYoutube(url: string, userId: string, startTime?: number, endTime?: number): Promise<Match> {
     if (!url || !isYoutubeUrl(url)) {
       throw new Error("Invalid YouTube URL");
     }
@@ -86,16 +86,15 @@ export class MatchesService {
       },
     });
 
-    this.logger.log(`Created match ${match.id} from YouTube URL: ${url}`);
-    
-    // Pass the raw YouTube URL to inference.
-    // The inference service's analysis.py will intercept it and download via yt-dlp
-    this.triggerInference(match.id, url);
+    this.logger.log(`Created match ${match.id} from YouTube URL: ${url} (range: ${startTime}-${endTime})`);
+
+    // Pass the raw YouTube URL and range to inference.
+    this.triggerInference(match.id, url, startTime, endTime);
 
     return match;
   }
 
-  async triggerInference(matchId: string, videoUrl: string) {
+  async triggerInference(matchId: string, videoUrl: string, startTime?: number, endTime?: number) {
     const inferenceUrl = process.env.INFERENCE_URL || 'http://localhost:8000';
     const maxAttempts = 5;
     const baseDelayMs = 2000;
@@ -106,8 +105,13 @@ export class MatchesService {
         await firstValueFrom(
           this.httpService.post(
             `${inferenceUrl}/api/v1/analyze`,
-            { match_id: matchId, video_url: videoUrl },
-            { timeout: 10000 },
+            {
+              match_id: matchId,
+              video_url: videoUrl,
+              start_time: startTime,
+              end_time: endTime
+            },
+            { timeout: 30000 },
           ) as any,
         );
         return; // Success
@@ -120,7 +124,7 @@ export class MatchesService {
           // Mark match as FAILED so it's visible in UI
           await this.prisma.match
             .update({ where: { id: matchId }, data: { status: 'FAILED' } })
-            .catch(() => {});
+            .catch(() => { });
           this.eventsGateway.server
             .to(matchId)
             .emit(WsEvents.PROGRESS, { matchId, progress: -1 });
@@ -134,7 +138,7 @@ export class MatchesService {
   }
 
   async findAll(userId?: string) {
-    const where = userId 
+    const where = userId
       ? { OR: [{ userId }, { userId: null }] }
       : {};
 
@@ -178,11 +182,14 @@ export class MatchesService {
   }
 
   async updateProgress(id: string, progress: number) {
-    // Mark as PROCESSING and save progress to DB
+    // progress === -1 is a failure signal from the inference service
+    const status = progress === -1 ? 'FAILED' : 'PROCESSING';
+    const safeProgress = progress === -1 ? 0 : Math.round(progress);
+
     await this.prisma.match
       .update({
         where: { id },
-        data: { status: 'PROCESSING', progress: Math.round(progress) },
+        data: { status, progress: safeProgress },
       })
       .catch((err: any) => {
         this.logger.warn(`Failed to update progress for match ${id}: ${err.message}`);
@@ -194,7 +201,7 @@ export class MatchesService {
     if (!id || !payload) {
       throw new Error("Invalid match ID or payload");
     }
-    
+
     const {
       events = [],
       highlights = [],
@@ -295,14 +302,14 @@ export class MatchesService {
       this.logger.error("Invalid match ID for reanalysis");
       return { ok: false };
     }
-    
+
     const match = await this.prisma.match.findFirst({ where: { id, OR: [{ userId }, { userId: null }] } });
     if (!match) {
       this.logger.warn(`Match not found: ${id}`);
       return { ok: false };
     }
 
-    // Wipe previous analysis results, keep the video file
+    // Wipe previous analysis results, keep the video source
     await this.prisma.$transaction([
       this.prisma.event.deleteMany({ where: { matchId: id } }),
       this.prisma.highlight.deleteMany({ where: { matchId: id } }),
@@ -323,13 +330,27 @@ export class MatchesService {
       }),
     ]);
 
-    // Reconstruct the filesystem path from the stored public URL
+    const uploadUrl = match.uploadUrl;
+
+    // If the stored URL is a YouTube/external URL, pass it directly — no file path reconstruction
+    if (uploadUrl.startsWith('http://youtube.com') ||
+      uploadUrl.startsWith('https://youtube.com') ||
+      uploadUrl.startsWith('https://youtu.be') ||
+      uploadUrl.startsWith('http://youtu.be') ||
+      uploadUrl.includes('youtube.com')) {
+      this.logger.log(`Re-analysing YouTube match ${id}: ${uploadUrl}`);
+      this.triggerInference(id, uploadUrl);
+      return { ok: true };
+    }
+
+    // For uploaded files: reconstruct the filesystem path from the stored public URL
     // uploadUrl format: http://localhost:4000/uploads/<filename>
     const uploadsDir = path.join(process.cwd(), '..', '..', 'uploads');
-    const uploadUrlParts = match.uploadUrl.split('/uploads/');
+    const uploadUrlParts = uploadUrl.split('/uploads/');
     if (uploadUrlParts.length < 2) {
-      this.logger.error(`Invalid uploadUrl format: ${match.uploadUrl}`);
-      throw new Error('Invalid uploadUrl format');
+      this.logger.error(`Cannot reconstruct file path from uploadUrl: ${uploadUrl}`);
+      await this.prisma.match.update({ where: { id }, data: { status: 'FAILED' } as any }).catch(() => { });
+      return { ok: false };
     }
     const fileName = uploadUrlParts[uploadUrlParts.length - 1];
     const videoPath = path.join(uploadsDir, fileName);
