@@ -358,7 +358,7 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
 
           {/* Upload progress */}
           {status === "uploading" && (
-            <div className="w-full max-w-[300px]">
+            <div className="w-full max-w-75">
               <div className="flex justify-between mb-2">
                 <span className="font-mono text-[9px] text-primary uppercase tracking-[0.12em]">UPLOADING</span>
                 <span className="font-mono text-[9px] text-primary">{uploadProgress}%</span>
@@ -371,7 +371,7 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
 
           {/* Processing progress */}
           {status === "processing" && (
-            <div className="w-full max-w-[300px]">
+            <div className="w-full max-w-75">
               <div className="flex justify-between mb-2">
                 <span className="font-mono text-[9px] text-primary uppercase tracking-[0.12em] animate-blink">ANALYSING MATCH</span>
                 <span className="font-mono text-[9px] text-primary">{processingProgress}%</span>

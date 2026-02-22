@@ -108,7 +108,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                 className={`group relative flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 transition-all duration-300 shrink-0 ${active ? "bg-accent/10" : "hover:bg-muted/40"
                   }`}
               >
-                <div className={`font-mono text-[9px] sm:text-[10px] uppercase tracking-[0.1em] transition-colors whitespace-nowrap ${active ? "text-accent font-semibold" : "text-muted-foreground group-hover:text-foreground"
+                <div className={`font-mono text-[9px] sm:text-[10px] uppercase tracking-widest transition-colors whitespace-nowrap ${active ? "text-accent font-semibold" : "text-muted-foreground group-hover:text-foreground"
                   }`}>
                   {f === "ALL" ? "MASTER FEED" : STATUS_CONFIG[f]?.label ?? f}
                 </div>
@@ -120,7 +120,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                 )}
                 {/* Active Indicator Line */}
                 {active && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent shadow-[0_-2px_8px_rgba(var(--color-accent),0.5)]" />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent shadow-[0_-2px_8px_rgba(var(--color-accent),0.5)]" />
                 )}
               </button>
             );
@@ -131,7 +131,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
 
       {/* Empty State */}
       {!visible.length && (
-        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border/60 bg-[radial-gradient(ellipse_at_center,_var(--surface-2)_0%,_transparent_100%)]">
+        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border/60 bg-[radial-gradient(ellipse_at_center,var(--surface-2)_0%,transparent_100%)]">
           <AlertTriangle className="size-8 text-muted-foreground/50 mb-4" />
           <h3 className="font-display text-xl tracking-widest text-muted-foreground uppercase opacity-80">
             {matches.length ? "NO SESSIONS RECORDED" : "NO MATCH DATA"}
@@ -212,7 +212,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                         <PlayCircle className="size-14 text-white/10" />
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                    <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-transparent" />
                     <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accentColor}18 0%, transparent 60%)` }} />
                     {/* Status badge */}
                     <div className="absolute top-3 left-3">
@@ -243,7 +243,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                         <span className="font-mono text-[10px] tabular-nums text-blue-300 font-bold">{safeProgress}%</span>
                       </div>
                       <div className="h-1 w-full bg-blue-950/50 overflow-hidden rounded-full">
-                        <div className="h-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-500 rounded-full" style={{ width: `${safeProgress}%` }} />
+                        <div className="h-full bg-linear-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-500 rounded-full" style={{ width: `${safeProgress}%` }} />
                       </div>
                     </div>
                   )}
@@ -299,9 +299,9 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                 </div>
 
                 {/* ════ DESKTOP LAYOUT (lg+) — compact horizontal row ════════ */}
-                <div className="hidden lg:flex lg:h-[72px] items-stretch relative overflow-hidden">
+                <div className="hidden lg:flex lg:h-18 items-stretch relative overflow-hidden">
                   <div className="flex flex-1 items-stretch">
-                    <Link href={`/matches/${m.id}`} className="w-[120px] h-full shrink-0 relative overflow-hidden group/thumb border-r border-white/10 bg-black/40">
+                    <Link href={`/matches/${m.id}`} className="w-30 h-full shrink-0 relative overflow-hidden group/thumb border-r border-white/10 bg-black/40">
                       {m.thumbnailUrl ? (
                         <img src={m.thumbnailUrl.startsWith("http") ? m.thumbnailUrl : `${API_BASE}${m.thumbnailUrl}`} alt="Preview" className="w-full h-full object-cover opacity-60 group-hover/thumb:opacity-100 transition-all duration-700 scale-110 group-hover/thumb:scale-100 saturate-50 group-hover/thumb:saturate-100" />
                       ) : (
@@ -309,11 +309,11 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                           <MiniHeatmap matches={matches} />
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-transparent opacity-60" />
+                      <div className="absolute inset-0 bg-linear-to-r from-black/60 via-transparent to-transparent opacity-60" />
                     </Link>
                     <Link href={`/matches/${m.id}`} className="flex-1 flex flex-col justify-center px-6 py-2 min-w-0 focus:outline-none group/id">
                       <div className="flex items-center gap-2 mb-1">
-                        <div className={`px-1.5 py-0.5 border font-mono text-[7px] uppercase tracking-[0.1em] font-bold shrink-0 ${cfg.color} ${m.status === "PROCESSING" ? "animate-pulse" : ""}`}>{cfg.label}</div>
+                        <div className={`px-1.5 py-0.5 border font-mono text-[7px] uppercase tracking-widest font-bold shrink-0 ${cfg.color} ${m.status === "PROCESSING" ? "animate-pulse" : ""}`}>{cfg.label}</div>
                         <h4 className="font-display text-base tracking-[0.05em] text-foreground group-hover/id:text-white transition-colors truncate">{formattedDate} — Analysis</h4>
                       </div>
                       <p className="font-mono text-[9px] text-muted-foreground/40 uppercase tracking-widest truncate">{formattedTime} • ID: {m.id.split("-")[0]}</p>
@@ -324,7 +324,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                             <span className="font-mono text-[9px] tabular-nums text-blue-300">{safeProgress}%</span>
                           </div>
                           <div className="h-1 w-full bg-white/10 overflow-hidden rounded-sm">
-                            <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-300 transition-all duration-500" style={{ width: `${safeProgress}%` }} />
+                            <div className="h-full bg-linear-to-r from-blue-500 to-cyan-300 transition-all duration-500" style={{ width: `${safeProgress}%` }} />
                           </div>
                         </div>
                       )}
@@ -337,16 +337,16 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                         { v: m.status === "COMPLETED" ? m._count.events.toString().padStart(2, "0") : "--", cls: "font-display text-[14px] text-accent drop-shadow-[0_0_8px_rgba(var(--color-accent),0.4)]" },
                         { v: m.status === "COMPLETED" ? m._count.highlights.toString().padStart(2, "0") : "--", cls: "font-display text-[14px] text-primary drop-shadow-[0_0_8px_rgba(var(--color-primary),0.4)]" },
                       ].map((stat, i) => (
-                        <div key={i} className="w-[80px] flex items-center justify-center bg-white/[0.01]"><span className={stat.cls}>{stat.v}</span></div>
+                        <div key={i} className="w-20 flex items-center justify-center bg-white/1"><span className={stat.cls}>{stat.v}</span></div>
                       ))}
                     </div>
-                    <div className="flex items-center justify-center w-[120px] border-l border-white/5">
+                    <div className="flex items-center justify-center w-30 border-l border-white/5">
                       <Link href={`/matches/${m.id}#highlights`} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/5 hover:bg-accent/15 border border-accent/20 hover:border-accent/40 text-accent transition-all rounded-sm">
                         <Scissors className="size-3" />
                         <span className="font-mono text-[8px] uppercase tracking-widest font-bold">Highlights</span>
                       </Link>
                     </div>
-                    <div className="flex items-center justify-center w-[120px] border-l border-white/10 bg-white/[0.02]">
+                    <div className="flex items-center justify-center w-30 border-l border-white/10 bg-white/2">
                       {!isConfirming ? (
                         <div className="flex items-center gap-2">
                           <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleReanalyze(m.id); }} disabled={reanalyzingId === m.id || m.status === "PROCESSING"} className={`flex items-center justify-center size-8 bg-white/5 border border-white/5 transition-all rounded-full ${reanalyzingId === m.id || m.status === "PROCESSING" ? "text-accent border-accent/30 cursor-wait" : "hover:bg-accent/10 text-muted-foreground hover:text-accent hover:border-accent/30"}`} title={m.status === "PROCESSING" ? "Analysis in progress" : "Reanalyze"}>

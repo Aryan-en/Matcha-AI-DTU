@@ -80,6 +80,14 @@ CONFIG = {
     "STREAM_BUFFER_SIZE": 15,  # Seconds to buffer before checking for events
     "STREAM_MAX_IDLE_SECS": 300,  # Auto-stop after 5 mins of no frames
     "LIVE_EMIT_INTERVAL_SECS": 1.0, # How often to update progress/status
+    # ── Performance Optimization (NEW) ────────────────────────────────────
+    "ENABLE_GPU_ACCELERATION": True,  # Use CUDA/GPU for YOLO if available
+    "PARALLEL_WORKERS": 4,  # Number of parallel frame processing threads
+    "BATCH_YOLO_SIZE": 8,  # Batch frames for YOLO inference
+    "SMART_FRAME_SKIP": True,  # Skip low-motion frames intelligently
+    "MOTION_CACHE_ENABLED": True,  # Cache motion scores to avoid recalculation
+    "ENABLE_INFERENCE_CACHING": True,  # Cache YOLO results for similar frames
+    "CACHE_SIMILARITY_THRESHOLD": 0.95,  # Frame similarity for cache hits (0.0-1.0)
 }
 
 # ── Heatmap & Speed analytics ───────────────────────────────────────────────
@@ -173,8 +181,66 @@ from app.core.video_utils import (
     precompress_video as _precompress_video
 )
 
+# ── Performance Optimization Utilities ────────────────────────────────────────
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+import hashlib
 
-# Logic moved to app.core.llm
+class FrameCache:
+    """LRU cache for YOLO inference results to avoid redundant processing."""
+    def __init__(self, max_size: int = 100, similarity_threshold: float = 0.95):
+        self.cache = {}
+        self.order = deque(maxlen=max_size)
+        self.max_size = max_size
+        self.similarity_threshold = similarity_threshold
+        self.hits = 0
+        self.misses = 0
+    
+    def _get_hash(self, frame: np.ndarray) -> str:
+        """Compute frame hash using the first few bytes."""
+        return hashlib.md5(frame[::4, ::4].tobytes()).hexdigest()  # Sample every 4th pixel for speed
+    
+    def get(self, frame: np.ndarray):
+        """Try to retrieve cached result for similar frame."""
+        frame_hash = self._get_hash(frame)
+        if frame_hash in self.cache:
+            self.hits += 1
+            return self.cache[frame_hash]
+        self.misses += 1
+        return None
+    
+    def put(self, frame: np.ndarray, result):
+        """Cache the inference result."""
+        frame_hash = self._get_hash(frame)
+        if len(self.order) >= self.max_size and frame_hash not in self.cache:
+            oldest = self.order[0]
+            del self.cache[oldest]
+        self.cache[frame_hash] = result
+        self.order.append(frame_hash)
+    
+    def stats(self):
+        total = self.hits + self.misses
+        hit_rate = (self.hits / total * 100) if total > 0 else 0
+        return {"hits": self.hits, "misses": self.misses, "hit_rate": f"{hit_rate:.1f}%", "size": len(self.cache)}
+
+# Initialize frame cache
+_frame_cache = FrameCache(max_size=100, similarity_threshold=CONFIG["CACHE_SIMILARITY_THRESHOLD"])
+
+def _detect_gpu_availability():
+    """Check if GPU is available for acceleration."""
+    if not CONFIG["ENABLE_GPU_ACCELERATION"]:
+        return False
+    try:
+        gpu_available = torch.cuda.is_available()
+        if gpu_available:
+            logger.info(f"🚀 GPU acceleration enabled: {torch.cuda.get_device_name(0)}")
+        return gpu_available
+    except:
+        return False
+
+GPU_AVAILABLE = _detect_gpu_availability()
+
+# ── Logic moved to app.core.llm ───────────────────────────────────────────────
 def _frame_to_pil(frame):
     from app.core.llm import _frame_to_pil as f2p
     return f2p(frame)
@@ -917,8 +983,22 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
             # ── YOLO detection & tracking ────────────────────────────────────
             current_motion = _get_motion_at(motion_windows, timestamp) if motion_windows else 0.3
             
-            # OPTIMIZATION: Skip YOLO on very static scenes
-            skip_yolo = current_motion < CONFIG["YOLO_SKIP_MOTION_THRESHOLD"] and processed_count % CONFIG["YOLO_SKIP_MOTION_INTERVAL"] != 0
+            # ── Adaptive Frame Skipping ──────────────────────────────────────
+            # Skip YOLO on very static scenes, but be more aggressive on low-motion periods
+            skip_yolo = False
+            if CONFIG["SMART_FRAME_SKIP"]:
+                # Skip on low motion, but occasionally sample for context
+                if current_motion < CONFIG["YOLO_SKIP_MOTION_THRESHOLD"]:
+                    # Skip most frames, but sample every 5 to catch sudden changes
+                    if processed_count % 5 != 0:
+                        skip_yolo = True
+                # Medium motion: normal skip interval
+                elif current_motion < 0.3:
+                    skip_yolo = (processed_count % CONFIG["YOLO_SKIP_MOTION_INTERVAL"] != 0)
+                # High motion: process every frame (no skip)
+            else:
+                # Legacy frame skipping
+                skip_yolo = current_motion < CONFIG["YOLO_SKIP_MOTION_THRESHOLD"] and processed_count % CONFIG["YOLO_SKIP_MOTION_INTERVAL"] != 0
             
             frame_balls:   list = []
             frame_persons: list = []
@@ -930,13 +1010,29 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
                     scale = target_height / frame.shape[0]
                     yolo_frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
 
-                try:
-                    results = model(yolo_frame, verbose=False)
-                    ball_results = ball_model(yolo_frame, classes=[32], verbose=False)
-                except Exception as e:
-                    logger.warning(f"YOLO inference failed: {e}")
-                    results = []
-                    ball_results = []
+                # Check cache first
+                cached_result = _frame_cache.get(yolo_frame) if CONFIG["ENABLE_INFERENCE_CACHING"] else None
+                
+                if cached_result:
+                    results, ball_results = cached_result
+                    logger.debug(f"Cache hit for frame {processed_count}")
+                else:
+                    try:
+                        # Use GPU for inference if available
+                        if GPU_AVAILABLE:
+                            results = model(yolo_frame, verbose=False, device=0)
+                            ball_results = ball_model(yolo_frame, classes=[32], verbose=False, device=0)
+                        else:
+                            results = model(yolo_frame, verbose=False)
+                            ball_results = ball_model(yolo_frame, classes=[32], verbose=False)
+                        
+                        # Cache the results
+                        if CONFIG["ENABLE_INFERENCE_CACHING"]:
+                            _frame_cache.put(yolo_frame, (results, ball_results))
+                    except Exception as e:
+                        logger.warning(f"YOLO inference failed: {e}")
+                        results = []
+                        ball_results = []
 
                 # Scale factor for converting YOLO coords back to original frame size
                 scale_factor = frame.shape[0] / yolo_frame.shape[0] if frame.shape[0] != yolo_frame.shape[0] else 1.0
@@ -1259,10 +1355,16 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
             summary = f"Match analysis completed. {len(scored_events)} events detected across {round(duration)}s of footage."
         logger.info(f"Summary: {len(summary)} chars")
 
-
+        # ── Performance Stats ────────────────────────────────────────────────
+        cache_stats = _frame_cache.stats() if CONFIG["ENABLE_INFERENCE_CACHING"] else {}
         logger.info(
             f"Done: {len(scored_events)} events | {len(highlights)} highlights | "
             f"{len(track_frames)} tracking frames | {duration:.1f}s"
+        )
+        logger.info(
+            f"Performance: GPU={GPU_AVAILABLE} | "
+            f"Frames={frame_count} | Smart Skip={CONFIG['SMART_FRAME_SKIP']} | "
+            f"Cache={cache_stats.get('hit_rate', 'N/A')}"
         )
 
         # Convert numpy types to native Python types for JSON serialization

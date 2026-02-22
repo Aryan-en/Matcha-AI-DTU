@@ -606,7 +606,7 @@ export function VideoPlayer({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
                   className="absolute bottom-10 right-0 bg-zinc-900 border border-white/10
-                             rounded-2xl overflow-hidden shadow-2xl z-30 min-w-[100px]"
+                             rounded-2xl overflow-hidden shadow-2xl z-30 min-w-25"
                 >
                   <div className="p-1 px-3 py-2 border-b border-white/5 text-[9px] font-bold text-zinc-500 uppercase">Speed</div>
                   {[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => (
