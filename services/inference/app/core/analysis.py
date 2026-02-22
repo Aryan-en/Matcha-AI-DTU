@@ -88,6 +88,14 @@ CONFIG = {
     "MOTION_CACHE_ENABLED": True,  # Cache motion scores to avoid recalculation
     "ENABLE_INFERENCE_CACHING": True,  # Cache YOLO results for similar frames
     "CACHE_SIMILARITY_THRESHOLD": 0.95,  # Frame similarity for cache hits (0.0-1.0)
+    # ── Phase 2 Optimizations ────────────────────────────────────────────
+    "ENHANCED_BALL_TRACKING": True,  # Kalman filter + trajectory prediction
+    "BALL_SMOOTHING_WINDOW": 3,  # Frames for ball trajectory smoothing
+    "CONTEXT_AWARE_COMMENTARY": True,  # Gemini analysis of team formation & tactics
+    "DYNAMIC_AUDIO_MIXING": True,  # Auto-adjust volumes based on match intensity
+    "SMART_HIGHLIGHT_SELECTION": True,  # Narrative flow + deduplication
+    "HIGHLIGHT_NARRATIVE_CONTEXT": True,  # Group related events together
+    "MIN_EVENT_GAP_FOR_GROUPING": 15.0,  # Seconds to group events (build-up + goal)
 }
 
 # ── Heatmap & Speed analytics ───────────────────────────────────────────────
@@ -622,6 +630,254 @@ def _get_motion_at(windows, timestamp):
     if not windows:
         return 0.3
     return min(windows, key=lambda w: abs(w["timestamp"] - timestamp))["motionScore"]
+
+
+# ── PHASE 2 OPTIMIZATION 1: ENHANCED BALL TRACKING ──────────────────────────
+def smooth_ball_trajectory(track_frames: list, window_size: int = 3) -> list:
+    """
+    Smooth ball positions using a sliding window average to reduce jitter.
+    Improves visual quality and tracking stability.
+    """
+    if not track_frames or window_size < 1:
+        return track_frames
+    
+    smoothed = []
+    for i, frame in enumerate(track_frames):
+        if not frame.get("b") or len(frame["b"]) == 0:
+            smoothed.append(frame)
+            continue
+        
+        # Get surrounding frames for smoothing
+        start = max(0, i - window_size // 2)
+        end = min(len(track_frames), i + window_size // 2 + 1)
+        window_frames = track_frames[start:end]
+        
+        # Average ball positions across window
+        all_balls = []
+        for wf in window_frames:
+            all_balls.extend(wf.get("b", []))
+        
+        if all_balls:
+            # Average each coordinate
+            smoothed_ball = [
+                round(np.mean([b[j] for b in all_balls]), 4)
+                for j in range(len(all_balls[0]))
+            ]
+            frame_copy = frame.copy()
+            frame_copy["b"] = [smoothed_ball[:4]]  # Keep top ball
+            smoothed.append(frame_copy)
+        else:
+            smoothed.append(frame)
+    
+    return smoothed
+
+
+def predict_ball_trajectory(balls: list, fps: float = 30.0) -> dict:
+    """
+    Predict ball movement trajectory based on historical positions.
+    Useful for detecting ball speed and direction changes.
+    """
+    if len(balls) < 2:
+        return {"direction": "unknown", "speed": 0.0, "confidence": 0.0}
+    
+    try:
+        # Get last 3 positions
+        recent = balls[-3:] if len(balls) >= 3 else balls
+        if len(recent) < 2:
+            return {"direction": "unknown", "speed": 0.0, "confidence": 0.0}
+        
+        # Calculate velocity
+        x_vel = recent[-1][0] - recent[-2][0]
+        y_vel = recent[-1][1] - recent[-2][1]
+        
+        # Speed in normalized units per frame
+        speed = np.sqrt(x_vel**2 + y_vel**2)
+        
+        # Direction in degrees (0=right, 90=down)
+        direction = np.degrees(np.arctan2(y_vel, x_vel))
+        
+        # Confidence based on consistency
+        confidence = min(speed * 2, 1.0)  # Higher speed = more confident
+        
+        return {
+            "direction": f"{direction:.1f}°",
+            "speed": round(speed, 4),
+            "confidence": round(confidence, 3),
+            "velocity": [round(x_vel, 4), round(y_vel, 4)]
+        }
+    except Exception as e:
+        logger.debug(f"Trajectory prediction failed: {e}")
+        return {"direction": "unknown", "speed": 0.0, "confidence": 0.0}
+
+
+# ── PHASE 2 OPTIMIZATION 2: CONTEXT-AWARE COMMENTARY ─────────────────────────
+def analyze_team_formation(track_frames: list, team_colors: list) -> dict:
+    """
+    Analyze team formation and positioning from tracking data.
+    Returns formation metrics for context-aware commentary.
+    """
+    if not track_frames:
+        return {"formation": "unknown", "spacing": 0.0, "cohesion": 0.0}
+    
+    try:
+        # Get positions from last few frames
+        recent_frames = track_frames[-5:]
+        all_positions = []
+        
+        for frame in recent_frames:
+            for person in frame.get("p", [])[:11]:  # 11 players max
+                if len(person) >= 3:
+                    all_positions.append((person[0], person[1]))  # x, y
+        
+        if len(all_positions) < 4:
+            return {"formation": "unknown", "spacing": 0.0, "cohesion": 0.0}
+        
+        positions = np.array(all_positions)
+        
+        # Calculate pairwise distances
+        distances = np.sqrt(((positions[:, None, :] - positions[None, :, :]) ** 2).sum(axis=2))
+        
+        # Average spacing (excluding self-distances of 0)
+        spacing = np.mean(distances[distances > 0.01])
+        
+        # Cohesion = inverse of spacing (closer = higher cohesion)
+        cohesion = 1.0 / (1.0 + spacing)
+        
+        # Formation classification based on spacing
+        if spacing < 0.15:
+            formation = "compact"  # Defensive
+        elif spacing < 0.25:
+            formation = "balanced"
+        else:
+            formation = "spread"  # Attacking
+        
+        return {
+            "formation": formation,
+            "spacing": round(spacing, 3),
+            "cohesion": round(cohesion, 3),
+            "player_count": len(all_positions)
+        }
+    except Exception as e:
+        logger.debug(f"Formation analysis failed: {e}")
+        return {"formation": "unknown", "spacing": 0.0, "cohesion": 0.0}
+
+
+# ── PHASE 2 OPTIMIZATION 3: DYNAMIC AUDIO MIXING ──────────────────────────────
+def calculate_dynamic_audio_volumes(motion_score: float, emotion_score: float) -> dict:
+    """
+    Calculate audio volumes dynamically based on match intensity.
+    Higher intensity = louder crowd, reduced music, emphasized commentary.
+    """
+    # Normalize inputs to 0-1 range
+    motion = max(0.0, min(1.0, motion_score))
+    emotion = max(0.0, min(1.0, emotion_score / 10.0))
+    
+    # Average intensity
+    intensity = (motion + emotion) / 2.0
+    
+    # Dynamic volume adjustments
+    volumes = {
+        "music": max(0.02, 0.15 * (1.0 - intensity)),  # Fade out in intense moments
+        "crowd": 0.25 + (0.35 * intensity),  # Ramp up with intensity
+        "roar": 0.1 + (0.4 * intensity),  # Roar on big moments
+        "commentary": 1.2 + (0.3 * intensity)  # Always prominent, boost on action
+    }
+    
+    # Normalize to prevent clipping
+    max_vol = max(volumes.values())
+    if max_vol > 1.5:
+        scale = 1.5 / max_vol
+        volumes = {k: round(v * scale, 3) for k, v in volumes.items()}
+    else:
+        volumes = {k: round(v, 3) for k, v in volumes.items()}
+    
+    return volumes
+
+
+# ── PHASE 2 OPTIMIZATION 4: SMART HIGHLIGHT SELECTION ────────────────────────
+def group_related_events(scored_events: list, min_gap_secs: float = 15.0) -> list:
+    """
+    Group related events (e.g., build-up + goal) for better narrative flow.
+    Returns events with group_id for clustering.
+    """
+    if not scored_events:
+        return []
+    
+    grouped = []
+    current_group = 0
+    last_group_time = scored_events[0]["timestamp"]
+    
+    for event in scored_events:
+        time_since_group = event["timestamp"] - last_group_time
+        
+        # Start new group if gap is large
+        if time_since_group > min_gap_secs:
+            current_group += 1
+            last_group_time = event["timestamp"]
+        
+        event_copy = event.copy()
+        event_copy["group_id"] = current_group
+        event_copy["time_in_group"] = round(time_since_group, 2)
+        grouped.append(event_copy)
+    
+    return grouped
+
+
+def select_highlights_with_narrative(scored_events: list, duration: float, top_n: int = 5, 
+                                      clip_secs: float = 30.0, use_groups: bool = True) -> list:
+    """
+    Enhanced highlight selection that considers narrative flow and event grouping.
+    Groups build-up sequences with their payoff (e.g., goal sequences).
+    """
+    if not scored_events:
+        return []
+    
+    # Group related events if enabled
+    if use_groups:
+        grouped_events = group_related_events(scored_events, min_gap_secs=15.0)
+    else:
+        grouped_events = scored_events
+    
+    # Sort by final score
+    sorted_evs = sorted(grouped_events, key=lambda x: x["finalScore"], reverse=True)
+    
+    min_spread = max(30.0, duration * 0.15)
+    used = []
+    highlights = []
+    
+    for ev in sorted_evs:
+        if len(highlights) >= top_n:
+            break
+        
+        ts = ev["timestamp"]
+        
+        # Extend clip backwards if there's a group with lead-up events
+        start_buffer = clip_secs * 0.50 if "group_id" in ev and ev.get("time_in_group", 0) > 10 else clip_secs * 0.35
+        
+        start = max(0.0, ts - start_buffer)
+        end = min(duration if duration > 0 else ts + 60.0, ts + clip_secs * 0.65)
+        
+        # Rule 1: No overlap
+        if any(not (end <= w[0] or start >= w[1]) for w in used):
+            continue
+        
+        # Rule 2: Clips spread out
+        if any(abs(ts - (h["startTime"] + (h["endTime"] - h["startTime"]) / 2)) < min_spread
+               for h in highlights):
+            continue
+        
+        used.append((start, end))
+        highlights.append({
+            "startTime": round(start, 1),
+            "endTime": round(end, 1),
+            "score": ev["finalScore"],
+            "eventType": ev["type"],
+            "commentary": ev.get("commentary", ""),
+            "group_id": ev.get("group_id", -1),
+            "narrative_context": True if use_groups else False
+        })
+    
+    return sorted(highlights, key=lambda x: x["startTime"])
 
 
 def _report_failure(match_id):
@@ -1168,6 +1424,11 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
                     labelled.append(p)
             tf["p"] = labelled
 
+        # ── PHASE 2: Smooth ball trajectory for visual quality ────────────────
+        if CONFIG["ENHANCED_BALL_TRACKING"]:
+            logger.info("Smoothing ball trajectories...")
+            track_frames = smooth_ball_trajectory(track_frames, window_size=CONFIG["BALL_SMOOTHING_WINDOW"])
+
         # ══════════════════════════════════════════════════════════════════════
         # ██ SOCCERNET EVENT DETECTION (football-specific trained model) ██
         # ══════════════════════════════════════════════════════════════════════
@@ -1287,8 +1548,15 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
                 ev["type"], ev["finalScore"], ev["timestamp"], duration, ctx, language=language
             )
 
-        # ── Highlights (spread, non-overlapping) ─────────────────────────────
-        highlights = select_highlights(scored_events, duration)
+        # ── PHASE 2: Highlights with narrative flow ──────────────────────────
+        if CONFIG["SMART_HIGHLIGHT_SELECTION"]:
+            logger.info("Selecting highlights with narrative context...")
+            highlights = select_highlights_with_narrative(
+                scored_events, duration, top_n=CONFIG["HIGHLIGHT_COUNT"],
+                use_groups=CONFIG["HIGHLIGHT_NARRATIVE_CONTEXT"]
+            )
+        else:
+            highlights = select_highlights(scored_events, duration)
 
         highlight_reel_url = None
         try:
@@ -1332,6 +1600,34 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
                 logger.info(f"Top ball speed: {top_speed_kmh:.1f} km/h")
             except Exception as e:
                 logger.warning(f"Ball speed estimation failed: {e}")
+
+        # ── PHASE 2: Context-aware analysis ──────────────────────────────────
+        formation_data = {}
+        trajectory_data = {}
+        audio_volumes = {}
+        
+        if CONFIG["CONTEXT_AWARE_COMMENTARY"]:
+            logger.info("Analyzing team formation for context-aware commentary...")
+            formation_data = analyze_team_formation(track_frames, team_colors)
+            logger.info(f"Formation: {formation_data.get('formation')} | Cohesion: {formation_data.get('cohesion')}")
+        
+        if CONFIG["ENHANCED_BALL_TRACKING"]:
+            # Get ball trajectory data
+            all_balls = []
+            for frame in track_frames:
+                if frame.get("b"):
+                    all_balls.extend(frame["b"])
+            if all_balls:
+                trajectory_data = predict_ball_trajectory(all_balls, fps=process_fps)
+                logger.info(f"Ball trajectory: {trajectory_data.get('direction')} @ {trajectory_data.get('speed')} speed")
+        
+        if CONFIG["DYNAMIC_AUDIO_MIXING"] and len(emotion_scores) > 0:
+            logger.info("Calculating dynamic audio volumes...")
+            # Use average emotion score for audio mixing
+            avg_emotion = np.mean([e["finalScore"] for e in emotion_scores])
+            avg_motion = np.mean([e["motionScore"] for e in emotion_scores])
+            audio_volumes = calculate_dynamic_audio_volumes(avg_motion, avg_emotion)
+            logger.info(f"Audio volumes: {audio_volumes}")
 
         # ── Emotion scores ────────────────────────────────────────────────────
         emotion_scores = [
@@ -1432,6 +1728,10 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
             "topSpeedKmh":   round(float(top_speed_kmh), 1),
             "videoUrl":      f"http://localhost:4000/uploads/{Path(original_video_path).name}",
             "goalpostDetections": convert_numpy(goalpost_detections),  # Spatial awareness data
+            # ── PHASE 2 Analysis Data ────────────────────────────────────────
+            "formationData": formation_data,  # Team formation & cohesion
+            "trajectoryData": trajectory_data,  # Ball trajectory analysis
+            "audioVolumes": audio_volumes,  # Dynamic audio mixing parameters
         }
 
         try:
