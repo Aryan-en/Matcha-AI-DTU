@@ -3,6 +3,10 @@
  *  Both apps/web and apps/mobile import from here.
  */
 
+import { CreateMatchInput, LoginInput, RegisterInput } from "@matcha/contracts";
+
+export type { CreateMatchInput, LoginInput, RegisterInput };
+
 export interface MatchEvent {
   id: string;
   timestamp: number;
@@ -45,6 +49,7 @@ export interface MatchDetail {
   teamColors: number[][] | null;
   heatmapUrl: string | null;
   topSpeedKmh: number | null;
+  thumbnailUrl: string | null;
   events: MatchEvent[];
   highlights: Highlight[];
   emotionScores: EmotionScore[];
@@ -59,6 +64,7 @@ export interface MatchSummary {
   uploadUrl: string;
   heatmapUrl: string | null;
   topSpeedKmh: number | null;
+  thumbnailUrl: string | null;
   _count: { events: number; highlights: number };
 }
 
@@ -91,6 +97,7 @@ export interface AnalysisPayload {
   trackingData?: TrackFrame[];
   teamColors?: number[][];
   heatmapUrl?: string;
+  thumbnailUrl?: string;
   topSpeedKmh?: number;
   videoUrl?: string;
 }

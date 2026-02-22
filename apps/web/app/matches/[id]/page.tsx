@@ -8,12 +8,8 @@ import {
   Zap, Star, BarChart3, TrendingUp, Film, Loader2,
   Trash2, Copy, Check, Trophy, Cpu, Radio
 } from "lucide-react";
-import { io, Socket } from "socket.io-client";
-import VideoPlayer from "@/components/VideoPlayer";
+import { ScoreBadge, CopyButton, VideoPlayer, useMatchSocket } from "@matcha/ui";
 import dynamic from "next/dynamic";
-
-import { ScoreBadge } from "@/components/ScoreBadge";
-import { CopyButton } from "@/components/CopyButton";
 
 // PDFReportButton wraps both PDFDownloadLink and MatchReportPDF.
 // It must be loaded dynamically with ssr:false — @react-pdf/renderer is
@@ -192,10 +188,20 @@ export default function MatchDetailPage() {
   const [reanalyzing, setReanalyzing] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [showOverlay, setShowOverlay] = useState(true);
-  const [liveEvents, setLiveEvents] = useState<MatchEvent[]>([]);
+  
   // seekFnRef: VideoPlayer injects its internal seekTo so parent buttons can seek
   const videoSeekRef = useRef<(t: number) => void>(() => {});
-  const socketRef = useRef<Socket | null>(null);
+  
+  const API_BASE = "http://localhost:4000";
+  const client = useMemo(() => createApiClient(`${API_BASE}`), []);
+
+  const { liveEvents, isConnected } = useMatchSocket({
+    matchId: id as string,
+    url: API_BASE,
+  });
+
+  const getAssetUrl = useCallback((url: string | null) => client.getAssetUrl(url), [client]);
+
   // Throttle currentTime updates — only update state every 500ms to avoid 60fps re-renders
   const lastTimeUpdateRef = useRef(0);
   const handleTimeUpdate = useCallback((t: number) => {
@@ -206,17 +212,12 @@ export default function MatchDetailPage() {
     }
   }, []);
 
-  const API_BASE = "http://localhost:4000";
-  const client = useMemo(() => createApiClient(`${API_BASE}/api/v1`), []);
-
-  const getAssetUrl = useCallback((url: string | null) => client.getAssetUrl(url), [client]);
-
   useEffect(() => {
     if (!id) return;
 
     const load = async () => {
       try {
-        const data = await client.getMatch(id);
+        const data = await client.getMatch(id as string);
         if (data && data.id) setMatch(data);
       } catch (err) {
         console.error("Match load failed:", err);
@@ -227,27 +228,10 @@ export default function MatchDetailPage() {
     load();
     const iv = setInterval(load, 5000);
 
-    const socket: Socket = io("http://localhost:4000", { transports: ["websocket"] });
-    socketRef.current = socket;
-    socket.emit("joinMatch", id);
-
-    socket.on("matchEvent", (payload: { matchId: string; event: MatchEvent }) => {
-      if (payload.matchId !== id) return;
-      setLiveEvents(prev => {
-        // de-duplicate by timestamp + type
-        const exists = prev.some(
-          e => e.timestamp === payload.event.timestamp && e.type === payload.event.type
-        );
-        if (exists) return prev;
-        return [...prev, payload.event];
-      });
-    });
-
     return () => {
       clearInterval(iv);
-      socket.disconnect();
     };
-  }, [id]);
+  }, [id, client]);
 
   const seekTo = useCallback((t: number) => { videoSeekRef.current(t); }, []);
 

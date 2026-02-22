@@ -18,17 +18,21 @@ sequenceDiagram
     autonumber
     
     actor User as Client (Next.js App)
+    participant Env as @matcha/env (Validator)
     participant Orch as Orchestrator (NestJS)
+    participant Cont as @matcha/contracts (Zod)
     participant Redis as Redis Cache
-    participant DB as PostgreSQL (Prisma)
+    participant DB as @matcha/database (Prisma)
     participant ML as Inference Engine (Python)
 
     %% -------------------------------------
     %% Stage 1: Upload & Registration Focus
     %% -------------------------------------
+    User->>Env: Validate Public Env (NEXT_PUBLIC_*)
     User->>Orch: POST /matches (Uploads Video File)
     activate Orch
     
+    Orch->>Cont: Validate Payload (Zod)
     Orch->>DB: Create Match Record & Return ID
     Orch->>Redis: Set Processing State [Analysis Queue]
     
@@ -53,6 +57,7 @@ sequenceDiagram
         
         opt Event Detected (e.g. GOAL!)
             ML->>Orch: POST /callbacks/event { ...EventData }
+            Orch->>Cont: Validate Callback Object
             Orch->>DB: Save Event Record
             Orch->>User: WS Event "eventDetected" [Live UI Popup]
         end
@@ -132,6 +137,7 @@ The complete current schema is documented below:
 erDiagram
     MATCH {
         String   id              PK
+        String   userId          FK "Links securely to authenticated user via JWT"
         String   uploadUrl
         String   status          "UPLOADED | PROCESSING | COMPLETED | FAILED"
         Int      progress        "0–100 processing percent"
@@ -146,6 +152,15 @@ erDiagram
         DateTime updatedAt
     }
 
+    USER {
+        String   id         PK
+        String   email      UNIQUE
+        String   password   "bcrypt hashed"
+        String   name
+        DateTime createdAt
+    }
+    
+    USER   ||--o{ MATCH         : "owns"
     EVENT {
         String   id         PK
         String   matchId    FK
@@ -277,6 +292,7 @@ apps/web/
 │                   ├── ⚡ Ball Speed   95th-pct peak km/h from YOLO tracking
 │                   ├── 🎨 Team Colors  Auto-detected jersey swatches (hex codes)  
 │                   └── 🗺 Heatmap     OpenCV player density PNG with pitch overlay
+│               └── PDF Report Generator (@react-pdf/renderer)
 ├── components/
 │   ├── layout/
 │   │   ├── Navbar.tsx             Responsive top nav with mobile hamburger
@@ -323,6 +339,9 @@ Matcha-AI-DTU/
 │   │   ├── components/             Shared React components
 │   │   └── public/                 Static assets
 │   └── mobile/                     Expo React Native (future)
+│
+├── packages/
+│   └── shared/                     Universal TS Types, APIs, Socket enums @matcha/shared
 │
 ├── services/
 │   ├── orchestrator/               NestJS API gateway (port 4000)

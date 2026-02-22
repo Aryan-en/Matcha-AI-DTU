@@ -12,39 +12,50 @@ The system is broken down into three main applications:
 
 ```mermaid
 graph TD
-    subgraph "Clients"
-        Web["apps/web (Next.js)"]
-        Mobile["apps/mobile (Expo)"]
-    end
-
-    subgraph "Core"
-        Shared["packages/shared (TS Types/API)"]
+    subgraph "Core & Tooling"
+        Shared["packages/shared (ApiClient/Utils)"]
+        Database["packages/database (Prisma Client)"]
+        Env["packages/env (Strict Validation)"]
+        Contracts["packages/contracts (Zod Schemas)"]
+        UI["packages/ui (Standardized Components)"]
+        Theme["packages/theme (Design Tokens)"]
     end
 
     subgraph "Services"
-        Orchestrator["services/orchestrator (NestJS)"]
-        Inference["services/inference (FastAPI)"]
+        Orchestrator["services/orchestrator (NestJS Hub)"]
+        Inference["services/inference (FastAPI Engine)"]
     end
 
-    subgraph "Data"
-        PG["PostgreSQL"]
-        RDS["Redis"]
+    subgraph "Data Layer"
+        PG["PostgreSQL (Storage)"]
+        RDS["Redis (Cache/PubSub)"]
     end
 
-    Web -.- Shared
-    Mobile -.- Shared
+    Web -.-> UI
+    Web -.-> Theme
+    Web -.-> Shared
+    Mobile -.-> Shared
+    Orchestrator ==> Database
+    Orchestrator ==> Contracts
+    Orchestrator ==> Env
     Web ==> Orchestrator
     Mobile ==> Orchestrator
     Orchestrator ==> Inference
-    Orchestrator --- PG
+    Database --- PG
     Orchestrator --- RDS
 ```
 
-1. **[Frontend Web (apps/web)](./apps/web/README.md)**: A modern React interface built with Next.js 15. Handles video uploads, live processing status, match dashboard, and the full analytics experience.
-2. **[Frontend Mobile (apps/mobile)](./apps/mobile/README.md)**: A React Native cross-platform app built with Expo and Expo Router. Shares API logic and types with the web app via a local package.
-3. **[Orchestrator (services/orchestrator)](./services/orchestrator/README.md)**: A NestJS API backend. Manages state (Prisma/Postgres, Redis), WebSockets, and delegates AI tasks to the Inference service.
-4. **[Shared Package (packages/shared)](./packages/shared)**: The single source of truth for TypeScript types, API client factories, and data transformation utilities used by both web and mobile.
-5. **[Inference Engine (services/inference)](./services/inference/README.md)**: Python FastAPI service running YOLOv8s, ByteTrack, SoccerNet, Gemini LLM analysis, and the 3-tier TTS pipeline.
+1. **[Frontend Web (apps/web)](./apps/web/README.md)**: A modern Next.js 15 interface. Consumes `@matcha/ui` for standardized components.
+2. **[Frontend Mobile (apps/mobile)](./apps/mobile/README.md)**: An Expo (React Native) app sharing business logic via `@matcha/shared`.
+3. **[Orchestrator (services/orchestrator)](./services/orchestrator/README.md)**: NestJS backend for API orchestration and database management.
+4. **[Shared Tooling (packages/*)](./packages)**:
+    - **[`@matcha/ui`](./packages/ui)**: React component system (VideoPlayer, MatchReportPDF, ScoreBadge).
+    - **[`@matcha/theme`](./packages/theme)**: Global design system (Tailwind config, Brand colors, Fonts).
+    - **[`@matcha/shared`](./packages/shared)**: Universal API client, WebSocket registries, and logical utilities.
+    - **[`@matcha/database`](./packages/database)**: Shared Prisma schema and generated client.
+    - **[`@matcha/contracts`](./packages/contracts)**: Centralized Zod validation schemas for all API payloads.
+    - **[`@matcha/env`](./packages/env)**: Strict, boot-time environment variable validation via T3-Env.
+5. **[Inference Engine (services/inference)](./services/inference/README.md)**: Python FastAPI AI pipeline (YOLO, SoccerNet, Gemini).
 
 ---
 
@@ -64,6 +75,9 @@ graph TD
 - **Team Colour Detection**: NumPy K-Means clustering on jersey crops automatically identifies which colour belongs to which team. Displayed as hex swatches.
 - **Highlight Reel Generation**: Top-N non-overlapping clips are cut, overlaid with scrolling text, mixed with TTS commentary + crowd ambience + background music, and concatenated into a single MP4 via FFmpeg.
 - **Context Score Intelligence**: Every event is scored 0–10 via a weighted formula balancing event type importance, motion intensity, temporal position, and detection confidence. Late goals are doubly weighted.
+- **Shared Architecture**: A dedicated `@matcha/shared` package centralizes TypeScript interfaces, API clients, WebSocket message registries, and formatters for universal type safety across web, mobile, and orchestrator.
+- **Secure Authentication**: Built-in JWT-based authentication via NestJS AuthModule and bcrypt, linking analyzed matches to distinct user accounts.
+- **Universal Design & PDF Generation**: Reusable Tailwind-driven React components (`ScoreBadge`, `CopyButton`) and standard logical themes applied globally, with an integrated `@react-pdf/renderer` module capable of instantly generating rich, visual Match Reports as downloadable PDFs.
 
 ---
 
@@ -86,16 +100,19 @@ docker compose up -d
 ```
 *This starts PostgreSQL on port 5433 and Redis on port 6380.*
 
-### 2. Install Node Dependencies
-Install all JavaScript dependencies seamlessly via turbo:
+### 2. Install & Initialize Monorepo
+Install all dependencies across the entire monorepo:
 ```bash
 npm install
 ```
-Then, deploy the database schema in the orchestrator:
+
+Generate the shared database client and run migrations:
 ```bash
-cd services/orchestrator
-npx prisma generate
-npx prisma migrate deploy
+# Generate Prisma Client
+npx turbo run generate
+
+# Deploy Migrations
+npx turbo run db:migrate
 ```
 
 ### 3. Setup Python Inference Environment
@@ -140,11 +157,13 @@ ORCHESTRATOR_URL=http://localhost:4000
 > 🔑 Get a free HuggingFace token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — select "Read" scope.  
 > The `HF_TOKEN` is optional but highly recommended — without it, Kokoro-82M TTS runs at anonymous rate limits.
 
-### 5. Start All Services (Recommended — Turborepo)
+### 5. Start Development Environment
+Matcha utilizes **Turborepo** to launch the entire stack (Frontend, Orchestrator, Inference) in a single command from the root:
 ```bash
-# From the monorepo root — starts all three services together
 npx turbo run dev
 ```
+
+This will automatically handle cross-package dependencies and output logs from all services in parallel.
 
 Alternatively, run each service manually in separate terminals:
 

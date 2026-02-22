@@ -5,7 +5,7 @@
 // if Next.js tries to evaluate it on the server.
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { Loader2, FileDown } from "lucide-react";
-import { MatchReportPDF, type MatchReportData } from "@/components/MatchReportPDF";
+import { MatchReportPDF, type MatchReportData } from "@matcha/ui";
 
 export default function PDFReportButton({ data }: { data: MatchReportData }) {
   return (

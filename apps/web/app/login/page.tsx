@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { createApiClient } from "@matcha/shared";
 import { Loader2, ArrowRight } from "lucide-react";
 
-const api = createApiClient(process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:4000/api/v1");
+const api = createApiClient(process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:4000");
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");

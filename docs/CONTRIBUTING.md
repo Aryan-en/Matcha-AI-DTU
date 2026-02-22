@@ -62,13 +62,14 @@ Follow these steps to run the full Matcha AI stack locally on Windows.
 npm install
 ```
 
-### Step 2: Set Up the Orchestrator
+### Step 2: Set Up the Orchestrator & Database
+All database logic is centralized in `@matcha/database`.
 ```bash
-cd services/orchestrator
-cp .env.example .env
-# Edit .env — set DATABASE_URL and HF_TOKEN
-npx prisma migrate dev
-npx prisma generate
+# Generate the shared Prisma client
+npx turbo run generate
+
+# Deploy migrations to your local Docker Postgres
+npx turbo run db:migrate
 ```
 
 ### Step 3: Set Up the Inference Service
@@ -124,17 +125,16 @@ CONFIG = {
 ```
 
 ### Adding a New Event Type
-1. Add the new type to the `EventType` enum in `services/orchestrator/prisma/schema.prisma`
-2. Add a weight to `EVENT_WEIGHTS` in `analysis.py`
-3. Add a minimum gap to `MODEL_MIN_GAP`
-4. Add fallback commentary templates to `_FALLBACK`
-5. Run `npx prisma migrate dev --name add_event_type` from `services/orchestrator/`
-6. Run `npx prisma generate` to update the Prisma client
+1. Add the new type to the `EventType` enum in `packages/database/prisma/schema.prisma`
+2. Add a weight to `EVENT_WEIGHTS` in `services/inference/app/core/analysis.py`
+3. Update the Zod schema in `packages/contracts/src/match.ts`
+4. Run `npx turbo run db:migrate` to update the database
+5. Run `npx turbo run generate` to update the Prisma client across the monorepo
 
 ### Adding a New Analytics Metric
 1. Add the computation logic to `app/core/heatmap.py` (or create a new module in `app/core/`)
 2. Add the result to the `payload` dict in `analyze_video()` in `analysis.py`
-3. Add the field to `CompletePayload` interface in `services/orchestrator/src/matches/matches.service.ts`
+3. Update the `AnalysisPayload` interface and `MatchDetail` interface located inside `packages/shared/src/types.ts`.
 4. Add the field to the Prisma `Match` model in `schema.prisma` and run a migration
 5. Display it in the "Analytics" tab in `apps/web/app/matches/[id]/page.tsx`
 
@@ -165,10 +165,13 @@ The frontend lives in `apps/web/`. Key locations:
 | `app/globals.css` | Global CSS, design tokens, utility classes |
 
 ### Adding a section to the Analytics Tab
-The Analytics tab is in `apps/web/app/matches/[id]/page.tsx` inside the `activeTab === "analytics"` block. To add a new metric:
-1. Ensure the orchestrator returns it in `GET /matches/:id`
-2. Access it via `(match as any).yourNewField` (or extend the `MatchDetail` TypeScript type)
-3. Add a new `<div className="bg-card border border-border p-5">` card within the analytics tab JSX
+The Analytics tab is in `apps/web/app/matches/[id]/page.tsx`. To add a new metric:
+1. Ensure the orchestrator returns it in the API response.
+2. Update the Zod schema and TypeScript interfaces in **`packages/contracts`** and **`packages/shared`**.
+3. Add a new UI card in the React component.
+
+### Monorepo Best Practices
+- **Shared Package**: Avoid defining types, constants, or WebSocket event strings locally within `apps/web` or `services/orchestrator`. Always export them from `packages/shared` so the mobile app and backend remain strictly synchronized.
 
 ### Mobile Responsiveness Guidelines
 - Always use `text-[10px] sm:text-sm` for text that appears in filter tabs or compact layouts

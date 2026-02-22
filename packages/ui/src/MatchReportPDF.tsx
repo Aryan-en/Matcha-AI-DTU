@@ -3,6 +3,7 @@ import {
   Document, Page, Text, View, Image, StyleSheet,
 } from "@react-pdf/renderer";
 import { MatchEvent, Highlight, formatTime, EVENT_CONFIG, DEFAULT_EVENT_CONFIG } from "@matcha/shared";
+import { BRAND_COLORS } from "@matcha/theme";
 
 export interface MatchReportData {
   id: string;
@@ -23,14 +24,13 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
-// Map logical themes to hex for PDF output
 const THEME_TO_HEX: Record<string, string> = {
-  success: "#34d399", 
-  warning: "#fbbf24", 
-  error:   "#f87171", 
-  info:    "#60a5fa", 
-  accent:  "#c084fc", 
-  neutral: "#a3a3a3",
+  success: BRAND_COLORS.success, 
+  warning: BRAND_COLORS.warning, 
+  error:   BRAND_COLORS.error, 
+  info:    BRAND_COLORS.info, 
+  accent:  BRAND_COLORS.primary, 
+  neutral: BRAND_COLORS.muted,
 };
 
 function getEventColor(type: string): string {
@@ -49,143 +49,124 @@ function scoreColor(score: number): string {
   return THEME_TO_HEX.neutral;
 }
 
-// ── Design Tokens ─────────────────────────────────────────────────────────────
-const C = {
-  bg:        "#07080F",
-  card:      "#111218",
-  border:    "#1f2028",
-  primary:   "#7EE8A2",
-  text:      "#e4e4e7",
-  muted:     "#71717a",
-  white:     "#ffffff",
-  headerBg:  "#0a0b12",
-};
-
+// ── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   page: {
-    backgroundColor: C.bg,
-    color: C.text,
+    backgroundColor: BRAND_COLORS.background,
+    color: BRAND_COLORS.text,
     fontFamily: "Helvetica",
     paddingBottom: 50,
   },
 
-  // ── Header (top bar every page) ──
   header: {
-    backgroundColor: C.headerBg,
+    backgroundColor: "#0a0b12",
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    borderBottomColor: BRAND_COLORS.border,
     paddingHorizontal: 32,
     paddingVertical: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  headerWordmark: { fontSize: 16, fontFamily: "Helvetica-Bold", color: C.primary, letterSpacing: 4 },
-  headerLabel:    { fontSize: 9, color: C.muted, letterSpacing: 3, textTransform: "uppercase" },
+  headerWordmark: { fontSize: 16, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.primary, letterSpacing: 4 },
+  headerLabel:    { fontSize: 9, color: BRAND_COLORS.muted, letterSpacing: 3, textTransform: "uppercase" },
 
-  // ── Footer ──
   footer: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     borderTopWidth: 1,
-    borderTopColor: C.border,
+    borderTopColor: BRAND_COLORS.border,
     paddingHorizontal: 32,
     paddingVertical: 10,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  footerText: { fontSize: 7, color: C.muted, letterSpacing: 1 },
+  footerText: { fontSize: 7, color: BRAND_COLORS.muted, letterSpacing: 1 },
 
-  // ── Section ──
   section: { marginHorizontal: 32, marginTop: 24 },
   sectionTitle: {
-    fontSize: 8, fontFamily: "Helvetica-Bold", color: C.primary,
+    fontSize: 8, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.primary,
     letterSpacing: 3, textTransform: "uppercase",
-    borderBottomWidth: 1, borderBottomColor: C.border,
+    borderBottomWidth: 1, borderBottomColor: BRAND_COLORS.border,
     paddingBottom: 6, marginBottom: 14,
   },
 
-  // ── Cover / Stat row ──
   metaRow: { flexDirection: "row", gap: 8, marginTop: 4 },
   metaChip: {
     flexDirection: "row", alignItems: "center", gap: 4,
     paddingHorizontal: 10, paddingVertical: 4,
-    backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+    backgroundColor: BRAND_COLORS.card, borderWidth: 1, borderColor: BRAND_COLORS.border,
   },
-  metaLabel: { fontSize: 7, color: C.muted, letterSpacing: 2, textTransform: "uppercase" },
-  metaValue: { fontSize: 9, fontFamily: "Helvetica-Bold", color: C.text },
+  metaLabel: { fontSize: 7, color: BRAND_COLORS.muted, letterSpacing: 2, textTransform: "uppercase" },
+  metaValue: { fontSize: 9, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.text },
   statGrid: { flexDirection: "row", gap: 10, marginTop: 2 },
   statBox: {
-    flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+    flex: 1, backgroundColor: BRAND_COLORS.card, borderWidth: 1, borderColor: BRAND_COLORS.border,
     padding: 14, alignItems: "flex-start",
   },
-  statLabel: { fontSize: 7, color: C.muted, letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 },
-  statValue: { fontSize: 26, fontFamily: "Helvetica-Bold", color: C.text, lineHeight: 1 },
-  statSub:   { fontSize: 7, color: C.muted, marginTop: 3 },
+  statLabel: { fontSize: 7, color: BRAND_COLORS.muted, letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 },
+  statValue: { fontSize: 26, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.text, lineHeight: 1 },
+  statSub:   { fontSize: 7, color: BRAND_COLORS.muted, marginTop: 3 },
 
-  // ── Summary ──
   summaryBox: {
-    backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
-    borderLeftWidth: 3, borderLeftColor: C.primary,
+    backgroundColor: BRAND_COLORS.card, borderWidth: 1, borderColor: BRAND_COLORS.border,
+    borderLeftWidth: 3, borderLeftColor: BRAND_COLORS.primary,
     padding: 16, marginTop: 2,
   },
-  summaryText: { fontSize: 9.5, color: C.text, lineHeight: 1.7 },
+  summaryText: { fontSize: 9.5, color: BRAND_COLORS.text, lineHeight: 1.7 },
 
-  // ── Analytics ──
   analyticsRow: { flexDirection: "row", gap: 12 },
   speedBox: {
-    flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+    flex: 1, backgroundColor: BRAND_COLORS.card, borderWidth: 1, borderColor: BRAND_COLORS.border,
     padding: 16,
   },
-  speedValue: { fontSize: 42, fontFamily: "Helvetica-Bold", color: "#fbbf24", lineHeight: 1 },
-  speedUnit:  { fontSize: 9, color: C.muted, letterSpacing: 3, marginTop: 4 },
-  speedSub:   { fontSize: 7.5, color: C.muted, marginTop: 8, lineHeight: 1.6 },
+  speedValue: { fontSize: 42, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.warning, lineHeight: 1 },
+  speedUnit:  { fontSize: 9, color: BRAND_COLORS.muted, letterSpacing: 3, marginTop: 4 },
+  speedSub:   { fontSize: 7.5, color: BRAND_COLORS.muted, marginTop: 8, lineHeight: 1.6 },
   colorBox: {
-    flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+    flex: 1, backgroundColor: BRAND_COLORS.card, borderWidth: 1, borderColor: BRAND_COLORS.border,
     padding: 16,
   },
   swatch: { height: 28, width: 28, marginRight: 10 },
   swatchRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  swatchLabel: { fontSize: 8, fontFamily: "Helvetica-Bold", color: C.muted, letterSpacing: 2, textTransform: "uppercase" },
-  swatchHex:   { fontSize: 9, color: C.text, fontFamily: "Helvetica-Bold" },
+  swatchLabel: { fontSize: 8, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.muted, letterSpacing: 2, textTransform: "uppercase" },
+  swatchHex:   { fontSize: 9, color: BRAND_COLORS.text, fontFamily: "Helvetica-Bold" },
   heatmapBox: {
-    backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+    backgroundColor: BRAND_COLORS.card, borderWidth: 1, borderColor: BRAND_COLORS.border,
     padding: 12, marginTop: 12,
   },
   heatmapImg: { width: "100%", height: 200, objectFit: "contain" },
-  heatmapSub: { fontSize: 7, color: C.muted, marginTop: 8, textAlign: "center", letterSpacing: 1 },
+  heatmapSub: { fontSize: 7, color: BRAND_COLORS.muted, marginTop: 8, textAlign: "center", letterSpacing: 1 },
 
-  // ── Events Table ──
   tableHeader: {
     flexDirection: "row", backgroundColor: "#0d0e16",
-    borderWidth: 1, borderColor: C.border,
+    borderWidth: 1, borderColor: BRAND_COLORS.border,
     paddingHorizontal: 10, paddingVertical: 8,
   },
   tableRow: {
-    flexDirection: "row", borderBottomWidth: 1, borderBottomColor: C.border,
+    flexDirection: "row", borderBottomWidth: 1, borderBottomColor: BRAND_COLORS.border,
     paddingHorizontal: 10, paddingVertical: 7,
   },
-  tableRowAlt: { backgroundColor: C.card },
+  tableRowAlt: { backgroundColor: BRAND_COLORS.card },
   colMin:      { width: 45, fontSize: 8 },
   colType:     { width: 90, fontSize: 8 },
   colScore:    { width: 50, fontSize: 8 },
   colComm:     { flex: 1, fontSize: 7.5 },
-  thText:      { fontSize: 7, fontFamily: "Helvetica-Bold", color: C.muted, letterSpacing: 2, textTransform: "uppercase" },
+  thText:      { fontSize: 7, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.muted, letterSpacing: 2, textTransform: "uppercase" },
 
-  // ── Highlights ──
   hlCard: {
-    backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+    backgroundColor: BRAND_COLORS.card, borderWidth: 1, borderColor: BRAND_COLORS.border,
     borderLeftWidth: 3, padding: 12, marginBottom: 8,
   },
   hlRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 5 },
-  hlTime: { fontSize: 8, fontFamily: "Helvetica-Bold", color: C.text },
+  hlTime: { fontSize: 8, fontFamily: "Helvetica-Bold", color: BRAND_COLORS.text },
   hlType: { fontSize: 7, letterSpacing: 2, textTransform: "uppercase" },
   hlScore: { fontSize: 9, fontFamily: "Helvetica-Bold" },
-  hlComm:  { fontSize: 8, color: C.muted, lineHeight: 1.6, marginTop: 4 },
-  scoreBar: { height: 3, backgroundColor: C.border, marginTop: 6 },
+  hlComm:  { fontSize: 8, color: BRAND_COLORS.muted, lineHeight: 1.6, marginTop: 4 },
+  scoreBar: { height: 3, backgroundColor: BRAND_COLORS.border, marginTop: 6 },
   scoreBarFill: { height: 3 },
 });
 
@@ -201,7 +182,7 @@ function PageWrapper({ children, pageNum, total }: { children: React.ReactNode; 
       </View>
 
       {/* Content */}
-      {children}
+      <View style={{ flex: 1 }}>{children}</View>
 
       {/* Footer */}
       <View style={styles.footer} fixed>
@@ -218,7 +199,6 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
     weekday: "long", day: "2-digit", month: "long", year: "numeric",
   });
 
-  // Sort events by finalScore desc, cap at 30 rows
   const topEvents = [...data.events]
     .sort((a, b) => b.finalScore - a.finalScore)
     .slice(0, 30);
@@ -233,9 +213,7 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
   return (
     <Document title="Match Report — Matcha AI" author="Matcha AI" creator="Matcha AI">
 
-      {/* ── PAGE 1: Cover + Summary ─────────────────────────────────────── */}
       <PageWrapper pageNum={1} total={totalPages}>
-        {/* Match meta chips */}
         <View style={styles.section}>
           <View style={styles.metaRow}>
             <View style={styles.metaChip}>
@@ -248,7 +226,7 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
             </View>
             <View style={styles.metaChip}>
               <Text style={styles.metaLabel}>Status</Text>
-              <Text style={[styles.metaValue, { color: C.primary }]}>{data.status}</Text>
+              <Text style={[styles.metaValue, { color: BRAND_COLORS.primary }]}>{data.status}</Text>
             </View>
             <View style={styles.metaChip}>
               <Text style={styles.metaLabel}>Events</Text>
@@ -257,7 +235,6 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
           </View>
         </View>
 
-        {/* Stat grid */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Match Overview</Text>
           <View style={styles.statGrid}>
@@ -278,7 +255,6 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
           </View>
         </View>
 
-        {/* AI Summary */}
         {data.summary && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>AI Match Summary</Text>
@@ -289,13 +265,11 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
         )}
       </PageWrapper>
 
-      {/* ── PAGE 2: Analytics ───────────────────────────────────────────────── */}
       <PageWrapper pageNum={2} total={totalPages}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Analytics</Text>
 
           <View style={styles.analyticsRow}>
-            {/* Ball Speed */}
             <View style={styles.speedBox}>
               <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Ball Speed</Text>
               <Text style={styles.speedValue}>
@@ -310,7 +284,6 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
               </Text>
             </View>
 
-            {/* Team Colours */}
             <View style={styles.colorBox}>
               <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Team Colours</Text>
               {hexA ? (
@@ -332,44 +305,41 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
                 </View>
               ) : null}
               <Text style={[styles.speedSub, { marginTop: 6 }]}>
-                Auto-detected via NumPy K-Means{"\n"}clustering on player jersey crops
+                Auto-detected via K-Means{"\n"}clustering on jersey crops
               </Text>
             </View>
           </View>
 
-          {/* Heatmap */}
           {data.heatmapUrl && (
             <View style={[styles.heatmapBox, { marginTop: 14 }]}>
               <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>Player Density Heatmap</Text>
               <Image src={data.heatmapUrl} style={styles.heatmapImg} />
               <Text style={styles.heatmapSub}>
-                Player position density accumulated over entire match · Generated by OpenCV Gaussian blur overlay
+                Player density accumulated over entire match · Gaussian blur overlay
               </Text>
             </View>
           )}
 
           {!data.heatmapUrl && (
             <View style={[styles.heatmapBox, { marginTop: 14, alignItems: "center", paddingVertical: 30 }]}>
-              <Text style={{ fontSize: 9, color: C.muted }}>Heatmap not available — re-analyze match to generate</Text>
+              <Text style={{ fontSize: 9, color: BRAND_COLORS.muted }}>Heatmap not available</Text>
             </View>
           )}
         </View>
       </PageWrapper>
 
-      {/* ── PAGE 3: Events Table ────────────────────────────────────────────── */}
       <PageWrapper pageNum={3} total={totalPages}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            Events Timeline · {topEvents.length} events{data.events.length > 30 ? ` (top ${topEvents.length} by score)` : ""}
+            Events Timeline · {topEvents.length} events
           </Text>
 
           {topEvents.length === 0 ? (
             <View style={{ padding: 20, alignItems: "center" }}>
-              <Text style={{ fontSize: 9, color: C.muted }}>No events detected in this match.</Text>
+              <Text style={{ fontSize: 9, color: BRAND_COLORS.muted }}>No events detected.</Text>
             </View>
           ) : (
             <>
-              {/* Table header */}
               <View style={styles.tableHeader}>
                 <Text style={[styles.colMin, styles.thText]}>Min</Text>
                 <Text style={[styles.colType, styles.thText]}>Event</Text>
@@ -377,10 +347,9 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
                 <Text style={[styles.colComm, styles.thText]}>Commentary</Text>
               </View>
 
-              {/* Table rows */}
               {topEvents.map((ev, i) => (
                 <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
-                  <Text style={[styles.colMin, { color: C.muted, fontFamily: "Helvetica-Bold" }]}>
+                  <Text style={[styles.colMin, { color: BRAND_COLORS.muted, fontFamily: "Helvetica-Bold" }]}>
                     {formatTime(ev.timestamp)}
                   </Text>
                   <Text style={[styles.colType, { color: getEventColor(ev.type), fontFamily: "Helvetica-Bold", letterSpacing: 0.5 }]}>
@@ -389,7 +358,7 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
                   <Text style={[styles.colScore, { color: scoreColor(ev.finalScore), fontFamily: "Helvetica-Bold" }]}>
                     {ev.finalScore.toFixed(1)}
                   </Text>
-                  <Text style={[styles.colComm, { color: C.muted }]}>
+                  <Text style={[styles.colComm, { color: BRAND_COLORS.muted }]}>
                     {ev.commentary || "—"}
                   </Text>
                 </View>
@@ -399,7 +368,6 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
         </View>
       </PageWrapper>
 
-      {/* ── PAGE 4: Highlights ──────────────────────────────────────────────── */}
       <PageWrapper pageNum={4} total={totalPages}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
@@ -408,7 +376,7 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
 
           {data.highlights.length === 0 ? (
             <View style={{ padding: 20, alignItems: "center" }}>
-              <Text style={{ fontSize: 9, color: C.muted }}>No highlights generated for this match.</Text>
+              <Text style={{ fontSize: 9, color: BRAND_COLORS.muted }}>No highlights generated.</Text>
             </View>
           ) : (
             data.highlights
@@ -432,7 +400,6 @@ export function MatchReportPDF({ data }: { data: MatchReportData }) {
                       </View>
                     </View>
 
-                    {/* Score bar */}
                     <View style={styles.scoreBar}>
                       <View style={[styles.scoreBarFill, { width: `${barWidth}%`, backgroundColor: color }]} />
                     </View>

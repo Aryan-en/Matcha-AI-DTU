@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient, Match, EventType, Prisma } from '@prisma/client';
+import { PrismaClient, Match, EventType, Prisma } from "@matcha/database";
 import { HttpService } from '@nestjs/axios';
 import { EventsGateway } from '../events/events.gateway';
 import { firstValueFrom } from 'rxjs';
@@ -208,6 +208,7 @@ export class MatchesService {
       heatmapUrl,
       topSpeedKmh,
       videoUrl,
+      thumbnailUrl,
     } = payload;
 
     const typeMap: Record<string, EventType> = {
@@ -270,6 +271,7 @@ export class MatchesService {
           trackingData,
           teamColors,
           heatmapUrl: heatmapUrl ?? null,
+          thumbnailUrl: thumbnailUrl ?? null,
           topSpeedKmh: topSpeedKmh ?? null,
           ...(videoUrl ? { uploadUrl: videoUrl } : {}),
         } as any,
@@ -314,6 +316,7 @@ export class MatchesService {
           trackingData: undefined,
           teamColors: undefined,
           heatmapUrl: null,
+          thumbnailUrl: null,
           topSpeedKmh: null,
           summary: null,
           duration: null,

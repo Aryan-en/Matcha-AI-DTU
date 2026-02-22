@@ -4,6 +4,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { SplashScreen } from "@/components/layout/SplashScreen";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { env } from "@/lib/env";
 import "./globals.css";
 
 const bebas = Bebas_Neue({

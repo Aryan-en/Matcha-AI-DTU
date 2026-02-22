@@ -37,13 +37,13 @@ export default function Home() {
         <div className="absolute inset-0 z-0 bg-background/85 backdrop-blur-[2px]" />
 
         {/* Hero Content Layer */}
-        <div className="relative z-10 max-w-[1440px] mx-auto px-4 sm:px-8 w-full flex flex-col items-center text-center gap-8 md:gap-10">
+        <div className="relative z-10 max-w-[1440px] mx-auto px-6 sm:px-8 w-full flex flex-col items-center text-center gap-6 sm:gap-10">
           
           <div className="flex flex-col items-center opacity-0" style={{ animation: "fadeup 0.8s ease-out forwards" }}>
-            <h1 className="font-display flex flex-col items-center leading-[0.8] text-[clamp(42px,11vw,120px)] text-foreground shadow-sm">
+            <h1 className="font-display flex flex-col items-center leading-[0.85] text-[clamp(48px,12vw,120px)] text-foreground shadow-sm">
               <span>MATCH</span>
               <span 
-                className="text-primary drop-shadow-[0_0_20px_rgba(var(--color-primary),0.6)] italic tracking-normal normal-case text-[clamp(32px,8vw,90px)] -mt-2 sm:-mt-4"
+                className="text-primary drop-shadow-[0_0_20px_rgba(var(--color-primary),0.6)] italic tracking-normal normal-case text-[clamp(36px,9vw,90px)] -mt-1 sm:-mt-4"
                 style={{ fontFamily: "Georgia, 'Times New Roman', Times, serif" }}
               >
                 Intelligence
@@ -52,7 +52,7 @@ export default function Home() {
           </div>
 
           <p 
-            className="font-heading max-w-2xl leading-relaxed text-[15px] sm:text-[19px] font-medium text-foreground/90 drop-shadow-md opacity-0"
+            className="font-heading max-w-2xl leading-relaxed text-[14px] sm:text-[19px] font-medium text-foreground/90 drop-shadow-md opacity-0 px-4"
             style={{ animation: "fadeup 0.8s ease-out 0.2s forwards" }}
           >
             Upload raw match footage. The AI pipeline detects goals, fouls, saves &amp; tackles —
@@ -61,7 +61,7 @@ export default function Home() {
 
           {/* Stat counters */}
           <div 
-            className="flex w-full md:w-auto items-center justify-center gap-4 sm:gap-16 mt-4 backdrop-blur-md bg-background/50 px-6 sm:px-12 py-4 sm:py-6 rounded-xl border border-border/60 shadow-2xl relative overflow-hidden group opacity-0"
+            className="flex w-full sm:w-auto items-center justify-center gap-2 sm:gap-16 mt-4 backdrop-blur-md bg-background/50 px-4 sm:px-12 py-4 sm:py-6 rounded-xl border border-border/60 shadow-2xl relative overflow-hidden group opacity-0"
             style={{ animation: "fadeup 0.8s ease-out 0.4s forwards" }}
           >
             <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
@@ -70,9 +70,9 @@ export default function Home() {
               { n: "04", label: "REELS" },
               { n: "∞",  label: "SAVED" },
             ].map((s) => (
-              <div key={s.label} className="text-center pr-4 sm:pr-16 last:pr-0 border-r last:border-r-0 border-border/60 relative z-10 flex-1 sm:flex-none">
-                <div className="font-display leading-none text-[26px] sm:text-[54px] text-primary drop-shadow-[0_0_12px_rgba(var(--color-primary),0.5)]">{s.n}</div>
-                <div className="font-mono mt-1 sm:mt-2 text-[8px] sm:text-[10.5px] text-muted-foreground uppercase tracking-[0.16em] font-bold">{s.label}</div>
+              <div key={s.label} className="text-center px-4 sm:px-0 sm:pr-16 last:pr-0 border-r last:border-r-0 border-border/40 relative z-10 flex-1 sm:flex-none">
+                <div className="font-display leading-none text-[28px] sm:text-[54px] text-primary drop-shadow-[0_0_12px_rgba(var(--color-primary),0.5)]">{s.n}</div>
+                <div className="font-mono mt-1 sm:mt-2 text-[7px] sm:text-[10.5px] text-muted-foreground uppercase tracking-[0.16em] font-bold">{s.label}</div>
               </div>
             ))}
           </div>
@@ -81,10 +81,10 @@ export default function Home() {
       </div>
 
       {/* ── Main grid ─────────────────────────────────── */}
-      <div className="relative z-10 max-w-[1440px] mx-auto px-8 w-full">
-        <div className="grid gap-0 grid-cols-1 lg:grid-cols-[minmax(0,500px)_1fr]">
+      <div className="relative z-10 max-w-[1440px] mx-auto px-4 sm:px-8 w-full">
+        <div className="grid gap-0 grid-cols-1 xl:grid-cols-[minmax(0,500px)_1fr]">
           {/* LEFT — Upload */}
-          <div className="lg:border-r border-b lg:border-b-0 py-10 lg:pr-10 border-border">
+          <div className="xl:border-r border-b xl:border-b-0 py-8 sm:py-10 xl:pr-10 border-border">
             <div className="flex items-center gap-3 mb-6">
               <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">FOOTAGE INPUT</span>
               <div className="flex-1 h-px bg-border" />
@@ -92,7 +92,7 @@ export default function Home() {
             <VideoUpload />
 
             {/* Capability grid */}
-            <div className="mt-8 grid grid-cols-2 gap-px bg-border">
+            <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-px bg-border border border-border">
               {[
                 "⚽  GOAL DETECTION",
                 "🟡  FOUL DETECTION",
@@ -103,7 +103,7 @@ export default function Home() {
               ].map((f) => (
                 <div
                   key={f}
-                  className="font-mono px-4 py-3 transition-colors text-[9px] bg-card text-muted-foreground uppercase tracking-[0.10em]"
+                  className="font-mono px-4 py-3 transition-colors text-[9px] bg-card text-muted-foreground uppercase tracking-[0.10em] flex items-center"
                 >
                   {f}
                 </div>
@@ -112,7 +112,7 @@ export default function Home() {
           </div>
 
           {/* RIGHT — Feed */}
-          <div className="py-10 lg:pl-10">
+          <div className="py-8 sm:py-10 xl:pl-10">
             <div className="flex items-center gap-3 mb-6">
               <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">ANALYSIS FEED</span>
               <div className="flex-1 h-px bg-border" />

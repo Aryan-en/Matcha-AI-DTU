@@ -5,32 +5,32 @@ export function Footer() {
   return (
     <footer className="w-full border-t border-border bg-card/50 mt-auto">
       <div className="max-w-[1440px] mx-auto px-6 md:px-8 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-center">
           
           {/* Left: Branding & Version */}
-          <div className="flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4 text-muted-foreground">
+          <div className="flex flex-row items-center gap-3 sm:gap-4 text-muted-foreground group">
             <div className="flex items-center gap-2">
-              <Terminal className="size-4" />
+              <Terminal className="size-4 group-hover:text-primary transition-colors" />
               <span className="font-display text-sm tracking-widest text-foreground">MATCHA AI</span>
             </div>
-            <div className="hidden md:block w-px h-4 bg-border" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.1em]">v2.1.0-RC</span>
+            <div className="w-px h-3 bg-border" />
+            <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-[0.1em]">v2.1.0-RC</span>
           </div>
 
-          {/* Center: System Status */}
-          <div className="flex items-center justify-start md:justify-center gap-6">
+          {/* Center: System Status - Hidden on extra small */}
+          <div className="hidden sm:flex items-center justify-start lg:justify-center gap-6">
             <div className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
+              <span className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
               <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">ORCHESTRATOR OK</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
               <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">INFERENCE READY</span>
             </div>
           </div>
 
           {/* Right: Links */}
-          <div className="flex items-center justify-start md:justify-end gap-6 font-mono text-[10px] uppercase tracking-widest">
+          <div className="flex items-center justify-start sm:justify-end lg:justify-end gap-6 sm:gap-8 font-mono text-[10px] uppercase tracking-widest sm:col-span-2 lg:col-span-1 border-t sm:border-t-0 border-border pt-4 sm:pt-0">
             <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">
               DASHBOARD
             </Link>

@@ -1,8 +1,8 @@
 # 🔌 API & Events Reference Guide
 
-This document outlines the contracts established between Next.js $\rightarrow$ Orchestrator $\leftrightarrow$ Inference Engine.
+This document outlines the strictly-typed contracts established between **Next.js** $\rightarrow$ **Orchestrator** $\leftrightarrow$ **Inference Engine**.
 
-> **Updated**: API reference has been significantly expanded to reflect the current production API surface, including the full `GET /matches/:id` analytics response schema, all active WebSocket events, and all internal inference service endpoints.
+> **Standardized Safety**: Since the Mono-Refinement, every API payload is validated at the gateway level using **`@matcha/contracts`**. If a payload does not strictly match the Zod schema, the request is rejected with a 400 Bad Request before hitting the service logic.
 
 ---
 
@@ -12,6 +12,7 @@ These are operations exposed primarily to the Frontend Client (Next.js).
 
 ### `POST /matches`
 Initiates a new video processing task.
+- **Headers**: `Authorization: Bearer <JWT_TOKEN>`
 - **Content-Type**: `multipart/form-data`
 - **Body**:
   - `file`: `(Binary)` The video file (e.g. .mp4, .mov, .mkv). Max 5GB.
@@ -30,7 +31,8 @@ Initiates a new video processing task.
   > After the 201 response, the orchestrator immediately fires `triggerInference()` in the background with up to 5 retry attempts (exponential backoff: 2s, 4s, 8s, 16s).
 
 ### `GET /matches`
-Retrieves all matches ordered by most recent.
+Retrieves all matches for the authenticated user, ordered by most recent.
+- **Headers**: `Authorization: Bearer <JWT_TOKEN>`
 - **Response**: `200 OK` — Array of match objects with event and highlight counts.
   ```json
   [
@@ -49,7 +51,8 @@ Retrieves all matches ordered by most recent.
   ```
 
 ### `GET /matches/:id`
-Retrieves fully analyzed data for a specific match including all events, highlights, emotion scores, and analytics fields.
+Retrieves fully analyzed data for a specific match including all events, highlights, emotion scores, and analytics fields. Applies user possession checks via context.
+- **Headers**: `Authorization: Bearer <JWT_TOKEN>`
 - **Response**: `200 OK` — Full match detail object.
   ```json
   {
@@ -99,7 +102,8 @@ Retrieves fully analyzed data for a specific match including all events, highlig
   ```
 
 ### `DELETE /matches/:id`
-Permanently deletes a match and all related records (events, highlights, emotion scores) from the database.
+Permanently deletes a match and all related records (events, highlights, emotion scores) from the database. Requires JWT possession verification.
+- **Headers**: `Authorization: Bearer <JWT_TOKEN>`
 - **Response**: `200 OK` — `{ "ok": true }`
 
 ### `POST /matches/:id/reanalyze`

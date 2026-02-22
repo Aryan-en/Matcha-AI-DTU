@@ -190,18 +190,24 @@ button,
 
 /* ── Card ───────────────────────────────────────────────── */
 .card {
-  background: var(--surface-1);
-  border: 1px solid var(--border);
-  transition: border-color 0.15s ease;
+  background: color-mix(in oklch, var(--surface-1), transparent 30%);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.3);
 }
 
 .card:hover {
-  border-color: var(--border-2);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: color-mix(in oklch, var(--surface-1), transparent 10%);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
 }
 
 /* .card-green for hover effect */
 .card-green:hover {
-  border-color: rgba(10, 232, 124, 0.30);
+  border-color: color-mix(in oklch, var(--green), transparent 70%);
+  box-shadow: 0 0 30px -10px color-mix(in oklch, var(--green), transparent 80%);
 }
 
 /* ── Drop zone ──────────────────────────────────────────── */

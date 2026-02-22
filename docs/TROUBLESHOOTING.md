@@ -72,22 +72,16 @@ If you run into issues launching the application or processing a video, refer to
 ## 🧑‍💻 Node.js & Prisma Issues
 
 ### Problem: Prisma Client reports missing tables
-**Symptoms**: `PrismaClientKnownRequestError: Table 'Match' does not exist in the current database.`
-**Cause**: Migrations were not applied to your active Postgres Docker container.
-**Resolution**:
+**Resolution**: Run the unified migration command from the root.
 ```bash
-cd services/orchestrator
-npx prisma generate
-npx prisma migrate deploy
+npx turbo run db:migrate
 ```
 
 ### Problem: Prisma `generate` fails with EPERM (file locked)
-**Symptoms**: `EPERM: operation not permitted, rename ... query_engine-windows.dll.node.tmp`
-**Cause**: The NestJS orchestrator process is running and has the Prisma query engine DLL locked in memory.
 **Resolution**:
-1. Stop the orchestrator (`Ctrl+C` in its terminal, or `Stop-Process` by PID).
-2. Run `cd services/orchestrator && npx prisma generate`.
-3. Restart the orchestrator.
+1. Stop all services (`Ctrl+C` in the turbo terminal).
+2. Run `npx turbo run generate`.
+3. Restart.
 
 ### Problem: `heatmapUrl` / `topSpeedKmh` fields don't exist (TypeScript type error)
 **Symptoms**: IDE shows red underlines on `heatmapUrl` in `matches.service.ts`.

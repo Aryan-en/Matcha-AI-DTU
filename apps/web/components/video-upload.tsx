@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { io, Socket } from "socket.io-client";
 import { createApiClient, WsEvents, isYoutubeUrl, extractYoutubeId } from "@matcha/shared";
 
-const api = createApiClient("http://localhost:4000/api/v1");
+const api = createApiClient("http://localhost:4000");
 
 export const VideoUpload = React.memo(function VideoUploadContent() {
   const router = useRouter();

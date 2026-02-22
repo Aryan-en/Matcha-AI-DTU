@@ -9,7 +9,7 @@ export function useMatches(baseUrl: string = "http://localhost:4000") {
   const [progressMap, setProgressMap] = useState<ProgressMap>({});
   
   const socketRef = useRef<Socket | null>(null);
-  const client = useMemo(() => createApiClient(baseUrl + "/api/v1"), [baseUrl]);
+  const client = useMemo(() => createApiClient(baseUrl), [baseUrl]);
 
   const fetchMatches = useCallback(async () => {
     try {

@@ -1,0 +1,27 @@
+{
+    "extends": "../typescript-config/react-library.json",
+    "compilerOptions": {
+        "outDir": "./dist",
+        "declaration": true,
+        "jsx": "react-jsx",
+        "baseUrl": ".",
+        "paths": {
+            "@matcha/theme": [
+                "../theme/src"
+            ],
+            "@matcha/shared": [
+                "../shared/src"
+            ],
+            "@matcha/contracts": [
+                "../contracts/src"
+            ]
+        }
+    },
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.tsx"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

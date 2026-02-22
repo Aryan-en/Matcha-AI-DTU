@@ -8,6 +8,7 @@ Expo (React Native) app for Matcha AI DTU.
 - **socket.io-client** for real-time match events
 - **expo-document-picker** + **expo-file-system** for video upload
 - **expo-av** for video playback
+- **Universal Types & Logic**: Integrates seamlessly with the `@matcha/shared` workspace package, inheriting `MatchDetail`, `formatTime()`, and unified `@matcha/shared` WebSocket constants.
 
 ## Folder layout
 ```

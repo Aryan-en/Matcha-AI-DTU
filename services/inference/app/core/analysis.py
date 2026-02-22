@@ -1654,6 +1654,29 @@ def analyze_video(video_path: str, match_id: str):
                 return [convert_numpy(i) for i in obj]
             return obj
 
+        # ── Midpoint Thumbnail Generation ─────────────────────────────────────
+        thumbnail_url = None
+        try:
+            midpoint_frame_idx = total_frames // 2
+            cap_thumb = cv2.VideoCapture(original_video_path)
+            cap_thumb.set(cv2.CAP_PROP_POS_FRAMES, midpoint_frame_idx)
+            ret_t, thumb_frame = cap_thumb.read()
+            if ret_t:
+                # Resize to standard 720p width if larger, maintain aspect ratio
+                th, tw = thumb_frame.shape[:2]
+                if tw > 1280:
+                    t_scale = 1280 / tw
+                    thumb_frame = cv2.resize(thumb_frame, (1280, int(th * t_scale)))
+                
+                thumbnail_filename = f"thumbnail_{match_id}.jpg"
+                thumbnail_path = str(UPLOADS_DIR / thumbnail_filename)
+                cv2.imwrite(thumbnail_path, thumb_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                thumbnail_url = f"/uploads/{thumbnail_filename}"
+                logger.info(f"Midpoint thumbnail generated: {thumbnail_url}")
+            cap_thumb.release()
+        except Exception as te:
+            logger.warning(f"Thumbnail generation failed: {te}")
+
         payload = {
             "events":        convert_numpy(scored_events),
             "highlights":    convert_numpy(highlights),
@@ -1661,6 +1684,7 @@ def analyze_video(video_path: str, match_id: str):
             "duration":      round(float(duration), 1),
             "summary":       summary,
             "highlightReelUrl": highlight_reel_url,
+            "thumbnailUrl":  thumbnail_url,
             "trackingData":  convert_numpy(track_frames),
             "teamColors":    convert_numpy(team_colors),   # [[R,G,B],[R,G,B]] team0 / team1
             "heatmapUrl":    heatmap_url,

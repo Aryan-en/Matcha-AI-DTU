@@ -72,3 +72,25 @@ export function extractYoutubeId(url: string): string | null {
   const match = url.match(YOUTUBE_REGEX);
   return match ? match[1] : null;
 }
+
+/** Fetch with automatic retries and exponential backoff */
+export async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  retries = 3,
+  backoff = 300
+): Promise<Response> {
+  try {
+    const res = await fetch(url, options);
+    // Only retry on network errors or 5xx server errors
+    if (!res.ok && res.status >= 500 && retries > 0) {
+      throw new Error(`Server error: ${res.status}`);
+    }
+    return res;
+  } catch (err) {
+    if (retries <= 0) throw err;
+    await new Promise((resolve) => setTimeout(resolve, backoff));
+    return fetchWithRetry(url, options, retries - 1, backoff * 2);
+  }
+}
+

@@ -3,6 +3,7 @@
  */
 
 import type { MatchSummary, MatchDetail } from "./types";
+import { fetchWithRetry } from "./utils";
 
 const getAuthHeaders = (): Record<string, string> => {
   if (typeof window === 'undefined') return {};
@@ -24,16 +25,16 @@ export function createApiClient(baseUrl: string) {
     },
 
     getMatches: (): Promise<MatchSummary[]> =>
-      fetch(`${apiBase}/matches`, { headers: getAuthHeaders() }).then((r) => r.json()),
+      fetchWithRetry(`${apiBase}/matches`, { headers: getAuthHeaders() }).then((r) => r.json()),
 
     getMatch: (id: string): Promise<MatchDetail> =>
-      fetch(`${apiBase}/matches/${id}`, { headers: getAuthHeaders() }).then((r) => r.json()),
+      fetchWithRetry(`${apiBase}/matches/${id}`, { headers: getAuthHeaders() }).then((r) => r.json()),
 
     deleteMatch: (id: string): Promise<Response> =>
-      fetch(`${apiBase}/matches/${id}`, { method: "DELETE", headers: getAuthHeaders() }),
+      fetchWithRetry(`${apiBase}/matches/${id}`, { method: "DELETE", headers: getAuthHeaders() }),
 
     reanalyze: (id: string): Promise<Response> =>
-      fetch(`${apiBase}/matches/${id}/reanalyze`, { method: "POST", headers: getAuthHeaders() }),
+      fetchWithRetry(`${apiBase}/matches/${id}/reanalyze`, { method: "POST", headers: getAuthHeaders() }),
 
     uploadVideo: (file: File | Blob, onProgress?: (pct: number) => void): Promise<MatchSummary> =>
       new Promise((resolve, reject) => {
@@ -57,7 +58,7 @@ export function createApiClient(baseUrl: string) {
       }),
 
     uploadYoutube: (url: string): Promise<MatchSummary> =>
-      fetch(`${apiBase}/matches/youtube`, {
+      fetchWithRetry(`${apiBase}/matches/youtube`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ url }),
@@ -67,7 +68,7 @@ export function createApiClient(baseUrl: string) {
       }),
 
     login: (body: any): Promise<{ access_token: string; user: any }> =>
-      fetch(`${cleanBase}/api/v1/auth/login`, {
+      fetchWithRetry(`${cleanBase}/api/v1/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -77,7 +78,7 @@ export function createApiClient(baseUrl: string) {
       }),
 
     register: (body: any): Promise<{ access_token: string; user: any }> =>
-      fetch(`${cleanBase}/api/v1/auth/register`, {
+      fetchWithRetry(`${cleanBase}/api/v1/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -87,7 +88,7 @@ export function createApiClient(baseUrl: string) {
       }),
       
     getMe: (): Promise<any> =>
-      fetch(`${apiBase}/auth/me`, {
+      fetchWithRetry(`${apiBase}/auth/me`, {
         method: "GET",
         headers: getAuthHeaders(),
       }).then(async (r) => {
@@ -101,5 +102,6 @@ export function createApiClient(baseUrl: string) {
       }),
   };
 }
+
 
 export type ApiClient = ReturnType<typeof createApiClient>;

@@ -1,17 +1,5 @@
 "use client";
 
-/**
- * VideoPlayer — custom HTML5 player with REAL-TIME in-browser AI tracking.
- *
- * Tracking is computed LIVE from video frames using COCO-SSD (TF.js) running
- * entirely in the browser — no database, no backend call, works for every video.
- *
- *  1. COCO-SSD  → person + sports-ball bounding boxes per frame (~10 fps async)
- *  2. Jersey-pixel sampling via 1-pixel offscreen canvas → RGB per player
- *  3. Incremental K-means (2 clusters) → team assignment & colour swatches
- *  4. Canvas drawn at 60 fps (smooth) — detection runs async in parallel
- */
-
 import {
   useRef, useEffect, useState, useCallback, type MouseEvent as RMouseEvent,
 } from "react";
@@ -19,19 +7,16 @@ import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Gauge, Film, Volume1, MessageSquare, Cpu,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { formatTime, MatchEvent, Highlight, EVENT_CONFIG, DEFAULT_EVENT_CONFIG } from "@matcha/shared";
-
-// kept for page.tsx compat — VideoPlayer no longer reads this
-export type TrackFrame = { t: number; b: number[][]; p: number[][] };
+import { BRAND_COLORS } from "@matcha/theme";
 
 interface Props {
   src: string;
   events:        MatchEvent[];
   highlights:    Highlight[];
   onTimeUpdate?: (t: number) => void;
-  /** Parent can call seekTo from outside (e.g. Top 5 Moments buttons) */
   seekFnRef?:         React.MutableRefObject<(t: number) => void>;
-  /** DB-stored team colours used as initial seed; overridden by live detection */
   initialTeamColors?: number[][] | null;
 }
 
@@ -55,13 +40,17 @@ function kMeans2(samples: number[][]): [number[], number[]] {
   return [c1, c2];
 }
 
-// ── Jersey colour sampler (1-pixel offscreen canvas) ─────────────────────────
+// ── Jersey colour sampler ───────────────────────────────────────────────────
 let _offscreen: HTMLCanvasElement | null = null;
 function sampleJersey(
   video: HTMLVideoElement, bx: number, by: number, bw: number, bh: number,
 ): [number, number, number] | null {
   try {
-    if (!_offscreen) { _offscreen = document.createElement("canvas"); _offscreen.width = 1; _offscreen.height = 1; }
+    if (!_offscreen) { 
+      _offscreen = document.createElement("canvas"); 
+      _offscreen.width = 1; 
+      _offscreen.height = 1; 
+    }
     const ctx = _offscreen.getContext("2d", { willReadFrequently: true })!;
     const sw = bw * 0.60, sh = bh * 0.35;
     if (sw < 2 || sh < 2) return null;
@@ -71,16 +60,13 @@ function sampleJersey(
   } catch { return null; }
 }
 
-// ── Misc helpers ──────────────────────────────────────────────────────────────
-
-// Map logical themes to hex for the canvas/seekbar markers
 const THEME_TO_HEX: Record<string, string> = {
-  success: "#10b981", // emerald-500 approx
-  warning: "#f59e0b", // amber-500 approx
-  error:   "#ef4444", // red-500 approx
-  info:    "#3b82f6", // blue-500 approx
-  accent:  "#a855f7", // purple-500 approx
-  neutral: "#71717a", // zinc-500 approx
+  success: BRAND_COLORS.success,
+  warning: BRAND_COLORS.warning,
+  error:   BRAND_COLORS.error,
+  info:    BRAND_COLORS.info,
+  accent:  BRAND_COLORS.primary,
+  neutral: BRAND_COLORS.muted,
 };
 
 function getEventColor(type: string): string {
@@ -104,11 +90,9 @@ function speak(text: string) {
 const stopSpeaking = () =>
   typeof window !== "undefined" && window.speechSynthesis?.cancel();
 
-// COCO-SSD detection shape
 interface Detection { bbox: [number,number,number,number]; class: string; score: number; }
 
-// ── Component ─────────────────────────────────────────────────────────────────
-export default function VideoPlayer({
+export function VideoPlayer({
   src, events, highlights, onTimeUpdate, seekFnRef, initialTeamColors,
 }: Props) {
   const wrapRef    = useRef<HTMLDivElement>(null);
@@ -140,15 +124,14 @@ export default function VideoPlayer({
   const [showSpeed,    setShowSpeed]    = useState(false);
   const [toast,        setToast]        = useState<string | null>(null);
   const [modelState,   setModelState]   = useState<"loading"|"ready"|"error">("loading");
-  const [sampleCount,  setSampleCount]  = useState(0); // re-render trigger for team swatches
+  const [sampleCount,  setSampleCount]  = useState(0);
 
-  // ── Load COCO-SSD (lazy import, browser only) ─────────────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore – TF.js hoisted to workspace root; types resolve at runtime
+        // @ts-ignore
         await import("@tensorflow/tfjs");
         // @ts-ignore
         const cocoSsd = await import("@tensorflow-models/coco-ssd");
@@ -159,7 +142,6 @@ export default function VideoPlayer({
     return () => { cancelled = true; };
   }, []);
 
-  // ── Async detection (non-blocking, called from rAF) ───────────────────────
   const runDetection = useCallback(async () => {
     const video = vidRef.current;
     const model = modelRef.current;
@@ -169,7 +151,6 @@ export default function VideoPlayer({
     try {
       const preds: Detection[] = await model.detect(video);
       predsRef.current = preds;
-      // Accumulate jersey colours → re-cluster every 40 new samples
       let added = 0;
       for (const p of preds) {
         if (p.class !== "person" || p.score < 0.45) continue;
@@ -180,12 +161,11 @@ export default function VideoPlayer({
       if (added && jerseyBuf.current.length >= 40) {
         if (jerseyBuf.current.length > 300) jerseyBuf.current.splice(0, jerseyBuf.current.length - 300);
         teamCols.current = kMeans2(jerseyBuf.current);
-        setSampleCount(jerseyBuf.current.length); // trigger swatch re-render
+        setSampleCount(jerseyBuf.current.length);
       }
     } finally { detectingRef.current = false; }
   }, []);
 
-  // ── rAF draw loop (60 fps canvas; detection async at ~10 fps) ────────────
   const drawLoop = useCallback(() => {
     const canvas = canvasRef.current;
     const video  = vidRef.current;
@@ -203,7 +183,6 @@ export default function VideoPlayer({
     if (frameIdx.current % 6 === 0 && showTracking) runDetection();
 
     if (showTracking && video.readyState >= 2) {
-      // letterbox correction
       const nW = video.videoWidth  || rect.width;
       const nH = video.videoHeight || rect.height;
       const nR = nW / nH, eR = rect.width / rect.height;
@@ -234,11 +213,12 @@ export default function VideoPlayer({
           const bCx = oX + (bx + bw / 2) * sX, bCy = oY + (by + bh / 2) * sY;
           const r = Math.max(7, (bw * sX) / 2);
           const grd = ctx.createRadialGradient(bCx, bCy, 0, bCx, bCy, r * 3);
-          grd.addColorStop(0, "rgba(16,185,129,0.55)"); grd.addColorStop(1, "rgba(16,185,129,0)");
+          grd.addColorStop(0, "rgba(190, 242, 100, 0.4)"); 
+          grd.addColorStop(1, "rgba(190, 242, 100, 0)");
           ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(bCx, bCy, r * 3, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = "rgba(16,185,129,0.95)"; ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.5;
+          ctx.fillStyle = BRAND_COLORS.primary; ctx.strokeStyle = BRAND_COLORS.white; ctx.lineWidth = 1.5;
           ctx.beginPath(); ctx.arc(bCx, bCy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = "rgba(255,255,255,0.85)";
+          ctx.fillStyle = BRAND_COLORS.white;
           ctx.font = `bold ${Math.max(8, r * 0.8)}px monospace`;
           ctx.textAlign = "center";
           ctx.fillText(`${Math.round(p.score * 100)}%`, bCx, bCy - r - 3);
@@ -254,7 +234,6 @@ export default function VideoPlayer({
     return () => cancelAnimationFrame(rafRef.current);
   }, [drawLoop]);
 
-  // ── Event toast + time sync ────────────────────────────────────────────────
   const handleTimeUpdate = useCallback(() => {
     const v = vidRef.current;
     if (!v) return;
@@ -273,7 +252,6 @@ export default function VideoPlayer({
     }
   }, [events, onTimeUpdate]);
 
-  // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const v = vidRef.current;
@@ -288,14 +266,12 @@ export default function VideoPlayer({
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // ── Fullscreen change listener ───────────────────────────────────────────────
   useEffect(() => {
     const onFS = () => setFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onFS);
     return () => document.removeEventListener("fullscreenchange", onFS);
   }, []);
 
-  // ── Controls ─────────────────────────────────────────────────────────────────
   const togglePlay = () => {
     const v = vidRef.current;
     if (!v) return;
@@ -330,14 +306,12 @@ export default function VideoPlayer({
     setShowSpeed(false);
   };
 
-  // ── Seek bar click / drag ────────────────────────────────────────────────────
   const seekTo = useCallback((t: number) => {
     const v = vidRef.current;
     if (!v) return;
     v.currentTime = Math.max(0, Math.min(t, duration));
   }, [duration]);
 
-  // Expose seekTo to parent via ref
   useEffect(() => {
     if (seekFnRef) seekFnRef.current = seekTo;
   }, [seekTo, seekFnRef]);
@@ -348,31 +322,26 @@ export default function VideoPlayer({
     seekTo(frac * duration);
   };
 
-  // ── Play highlight (seek + speak commentary) ─────────────────────────────────
   const playHighlight = (h: Highlight) => {
     stopSpeaking();
     seekTo(h.startTime);
     vidRef.current?.play();
     if (h.commentary) {
-      // Slight delay so speech doesn't overlap with seek sound
       setTimeout(() => speak(h.commentary!), 400);
     }
   };
 
   const progressPct = duration > 0 ? (current / duration) * 100 : 0;
-
-  // Prevent browser NotSupportedError when a YouTube URL is passed before the mp4 is ready
   const isYoutube = src.includes("youtube.com") || src.includes("youtu.be");
   const safeSrc = isYoutube ? undefined : src;
 
   return (
     <div
       ref={wrapRef}
-      className="flex flex-col bg-black rounded-xl overflow-hidden select-none focus:outline-none"
+      className="flex flex-col bg-zinc-950 rounded-xl overflow-hidden select-none focus:outline-none ring-1 ring-white/10 shadow-2xl"
       tabIndex={0}
     >
-      {/* ── Video + Canvas Overlay ─────────────────────────────────────────── */}
-      <div className="relative group bg-black">
+      <div className="relative group bg-zinc-900">
         <video
           ref={vidRef}
           src={safeSrc}
@@ -386,113 +355,122 @@ export default function VideoPlayer({
           preload="metadata"
         />
 
-        {/* Canvas overlay for tracking */}
         <canvas
           ref={canvasRef}
           className="absolute inset-0 pointer-events-none"
           style={{ width: "100%", height: "100%" }}
         />
 
-        {/* Big play/pause overlay (fades when playing) */}
         <div
           onClick={togglePlay}
           className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 cursor-pointer
             ${playing ? "opacity-0 group-hover:opacity-0" : "opacity-100"}`}
         >
           {!playing && (
-            <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur flex items-center justify-center border border-white/20">
-              <Play className="w-7 h-7 text-white ml-1" />
-            </div>
+            <motion.div 
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-20 h-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-2xl"
+            >
+              <Play className="w-8 h-8 text-white ml-1.5" />
+            </motion.div>
           )}
         </div>
 
-        {/* Event toast */}
-        {toast && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 max-w-xs
-                          bg-black/80 backdrop-blur border border-emerald-500/40 text-white
-                          text-xs px-3 py-2 rounded-xl shadow-xl text-center animate-in fade-in">
-            💬 {toast}
-          </div>
-        )}
+        <AnimatePresence>
+          {toast && (
+            <motion.div 
+              initial={{ y: -20, opacity: 0, x: "-50%" }}
+              animate={{ y: 0, opacity: 1, x: "-50%" }}
+              exit={{ y: -20, opacity: 0, x: "-50%" }}
+              className="absolute top-4 left-1/2 z-30 max-w-sm
+                         bg-black/80 backdrop-blur-lg border border-primary/40 text-white
+                         text-xs px-4 py-2.5 rounded-2xl shadow-2xl text-center"
+            >
+              <span className="text-primary mr-1.5 font-bold">EVENT</span> {toast}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* AI tracking badge + toggle */}
-        <div className="absolute top-2 right-2 z-20 flex flex-col items-end gap-1.5">
-          <div className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg backdrop-blur-sm
-            ${modelState === "ready"   ? "bg-emerald-900/70 border border-emerald-500/40 text-emerald-300"
-            : modelState === "loading" ? "bg-black/60 border border-white/10 text-zinc-400 animate-pulse"
-            : "bg-red-900/70 border border-red-500/40 text-red-300"}`}
+        <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-2">
+          <div className={`flex items-center gap-1.5 text-[10px] uppercase font-bold px-2.5 py-1 rounded-full backdrop-blur-md border shadow-lg
+            ${modelState === "ready"   ? "bg-emerald-950/60 border-emerald-500/30 text-emerald-400"
+            : modelState === "loading" ? "bg-zinc-900/60 border-zinc-700/50 text-zinc-400 animate-pulse"
+            : "bg-red-950/60 border-red-500/30 text-red-400"}`}
           >
-            <Cpu className="w-3 h-3" />
-            {modelState === "ready" ? "AI Live" : modelState === "loading" ? "Loading AI…" : "AI Error"}
+            <Cpu className="w-3.5 h-3.5" />
+            {modelState === "ready" ? "AI Pipeline Live" : modelState === "loading" ? "Initializing AI…" : "AI Offline"}
           </div>
           <button
             onClick={() => setShowTracking(v => !v)}
-            className="bg-black/60 hover:bg-black/80 border border-white/10 text-[10px] px-2 py-1
-                       rounded-lg transition-all backdrop-blur-sm flex items-center gap-1 text-white/70"
+            className="group/btn bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/10 text-[10px] font-semibold px-3 py-1.5
+                       rounded-full transition-all backdrop-blur-md flex items-center gap-2 text-white/80 shadow-lg"
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${showTracking ? "bg-emerald-400" : "bg-zinc-600"}`} />
-            {showTracking ? "Hide Tracking" : "Show Tracking"}
+            <span className={`w-2 h-2 rounded-full transition-colors ${showTracking ? "bg-primary animate-pulse" : "bg-zinc-600"}`} />
+            {showTracking ? "Visual Elements ON" : "Visual Elements OFF"}
           </button>
-          {sampleCount >= 40 && (
-            <div className="flex gap-1.5 items-center bg-black/60 border border-white/10 px-2 py-1 rounded-lg backdrop-blur-sm">
-              {teamCols.current.map((col, i) => (
-                <span
-                  key={i}
-                  title={`Team ${i + 1}: rgb(${col.join(",")})`}
-                  style={{ background: `rgb(${col.join(",")})` }}
-                  className="w-3 h-3 rounded-full border border-white/30"
-                />
-              ))}
-            </div>
-          )}
+          
+          <AnimatePresence>
+            {sampleCount >= 40 && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex gap-2 items-center bg-zinc-900/60 border border-white/10 px-2.5 py-1.5 rounded-full backdrop-blur-md shadow-lg"
+              >
+                <span className="text-[9px] font-bold text-zinc-400 uppercase mr-1">Teams</span>
+                {teamCols.current.map((col, i) => (
+                  <span
+                    key={i}
+                    title={`Team ${i + 1}`}
+                    style={{ background: `rgb(${col.join(",")})` }}
+                    className="w-3 h-3 rounded-full border border-white/20 ring-1 ring-black/50"
+                  />
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {/* ── Custom Controls ────────────────────────────────────────────────── */}
-      <div className="bg-zinc-950 border-t border-zinc-800 px-3 pt-2 pb-2.5 space-y-2">
-
-        {/* ── Seek bar + event markers ───────────────────────────────────────*/}
+      <div className="bg-zinc-950 border-t border-white/5 px-4 pt-3 pb-4 space-y-3">
         <div
           ref={seekRef}
-          className="relative h-7 flex items-center cursor-pointer group/seek"
+          className="relative h-6 flex items-center cursor-pointer group/seek"
           onClick={onSeekClick}
         >
-          {/* Track */}
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-none"
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-zinc-800/50 rounded-full overflow-hidden">
+            <motion.div
+              className={`h-full bg-gradient-to-r from-primary to-primaryDark rounded-full transition-none`}
               style={{ width: `${progressPct}%` }}
+              layoutId="seek-progress"
             />
           </div>
 
-          {/* Thumb */}
           <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full
-                       bg-white shadow-lg transition-transform group-hover/seek:scale-125 z-10"
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full
+                       bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-transform group-hover/seek:scale-125 z-10"
             style={{ left: `${progressPct}%` }}
           />
 
-          {/* Event markers */}
           {duration > 0 && events.map((ev) => {
             const pct = (ev.timestamp / duration) * 100;
             const col = getEventColor(ev.type);
             return (
               <button
                 key={ev.id}
-                title={`${ev.type} ${formatTime(ev.timestamp)} — score ${ev.finalScore.toFixed(1)}`}
+                title={`${ev.type} ${formatTime(ev.timestamp)}`}
                 onClick={(e) => { e.stopPropagation(); seekTo(ev.timestamp); }}
                 className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-20
-                           w-2 h-2 rounded-full border border-black hover:scale-150 transition-transform"
+                           w-2.5 h-2.5 rounded-full border border-black/50 hover:scale-150 transition-transform shadow-lg"
                 style={{ left: `${pct}%`, background: col }}
               />
             );
           })}
 
-          {/* Highlight regions */}
           {duration > 0 && highlights.map((h) => (
             <div
               key={h.id}
-              className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-amber-400/35 rounded-sm pointer-events-none z-5"
+              className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-warning/20 rounded-sm pointer-events-none z-5"
               style={{
                 left:  `${(h.startTime / duration) * 100}%`,
                 width: `${((h.endTime - h.startTime) / duration) * 100}%`,
@@ -501,153 +479,140 @@ export default function VideoPlayer({
           ))}
         </div>
 
-        {/* ── Time + Controls row ────────────────────────────────────────────*/}
-        <div className="flex items-center gap-2">
-          {/* Skip back 10s */}
-          <button
-            onClick={() => seekTo(current - 10)}
-            className="text-zinc-400 hover:text-white transition-colors"
-            title="Back 10s (←)"
-          >
-            <SkipBack className="w-4 h-4" />
-          </button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => seekTo(current - 10)}
+              className="text-zinc-500 hover:text-white transition-colors p-1"
+            >
+              <SkipBack className="w-5 h-5" />
+            </button>
 
-          {/* Play/Pause */}
-          <button
-            onClick={togglePlay}
-            className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center
-                       hover:bg-zinc-200 transition-colors shrink-0"
-          >
-            {playing
-              ? <Pause className="w-4 h-4" />
-              : <Play  className="w-4 h-4 ml-0.5" />
-            }
-          </button>
+            <button
+              onClick={togglePlay}
+              className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center
+                         hover:bg-zinc-200 transition-all hover:scale-105 active:scale-95 shadow-lg shrink-0"
+            >
+              {playing ? <Pause className="w-5 h-5" /> : <Play  className="w-5 h-5 ml-0.5" />}
+            </button>
 
-          {/* Skip forward 10s */}
-          <button
-            onClick={() => seekTo(current + 10)}
-            className="text-zinc-400 hover:text-white transition-colors"
-            title="Forward 10s (→)"
-          >
-            <SkipForward className="w-4 h-4" />
-          </button>
+            <button
+              onClick={() => seekTo(current + 10)}
+              className="text-zinc-500 hover:text-white transition-colors p-1"
+            >
+              <SkipForward className="w-5 h-5" />
+            </button>
+          </div>
 
-          {/* Time display */}
-          <span className="text-xs font-mono text-zinc-400 whitespace-nowrap">
-            {formatTime(current)} / {formatTime(duration)}
+          <span className="text-xs font-mono font-bold text-zinc-400 tabular-nums">
+            {formatTime(current)} <span className="text-zinc-700">/</span> {formatTime(duration)}
           </span>
 
           <div className="flex-1" />
 
-          {/* Volume */}
-          <button onClick={toggleMute} className="text-zinc-400 hover:text-white transition-colors">
-            {muted || volume === 0
-              ? <VolumeX className="w-4 h-4" />
-              : volume < 0.5
-              ? <Volume1 className="w-4 h-4" />
-              : <Volume2 className="w-4 h-4" />
-            }
-          </button>
-          <input
-            type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume}
-            onChange={(e) => onVolumeChange(Number(e.target.value))}
-            className="w-16 h-1 accent-emerald-500 cursor-pointer"
-          />
+          <div className="flex items-center gap-2 group/volume">
+            <button onClick={toggleMute} className="text-zinc-500 hover:text-white transition-colors">
+              {muted || volume === 0 ? <VolumeX className="w-5 h-5" /> : volume < 0.5 ? <Volume1 className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            </button>
+            <input
+              type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume}
+              onChange={(e) => onVolumeChange(Number(e.target.value))}
+              className="w-0 group-hover/volume:w-20 transition-all duration-300 h-1 accent-primary cursor-pointer opacity-0 group-hover:opacity-100"
+            />
+          </div>
 
-          {/* Speed popup */}
           <div className="relative">
             <button
               onClick={() => setShowSpeed(v => !v)}
-              className="flex items-center gap-0.5 text-xs text-zinc-400 hover:text-white
-                         border border-zinc-800 hover:border-zinc-600 px-2 py-0.5 rounded transition-all"
-              title="Playback speed"
+              className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-zinc-400 hover:text-white
+                         bg-zinc-900 border border-white/5 hover:border-white/10 px-3 py-1.5 rounded-full transition-all"
             >
-              <Gauge className="w-3 h-3" /> {speed}x
+              <Gauge className="w-3.5 h-3.5" /> {speed}x
             </button>
-            {showSpeed && (
-              <div className="absolute bottom-8 right-0 bg-zinc-900 border border-zinc-700
-                              rounded-lg overflow-hidden shadow-xl z-30 min-w-[70px]">
-                {[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => setPlaybackRate(r)}
-                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors
-                      ${speed === r
-                        ? "bg-emerald-500/20 text-emerald-400"
-                        : "text-zinc-400 hover:bg-zinc-800 hover:text-white"}`}
-                  >
-                    {r}x
-                  </button>
-                ))}
-              </div>
-            )}
+            <AnimatePresence>
+              {showSpeed && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute bottom-10 right-0 bg-zinc-900 border border-white/10
+                             rounded-2xl overflow-hidden shadow-2xl z-30 min-w-[100px]"
+                >
+                  <div className="p-1 px-3 py-2 border-b border-white/5 text-[9px] font-bold text-zinc-500 uppercase">Speed</div>
+                  {[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setPlaybackRate(r)}
+                      className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors
+                        ${speed === r ? "bg-primary/10 text-primary" : "text-zinc-400 hover:bg-zinc-800 hover:text-white"}`}
+                    >
+                      {r}x
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {/* Fullscreen */}
           <button
             onClick={toggleFullscreen}
-            className="text-zinc-400 hover:text-white transition-colors"
-            title="Fullscreen (F)"
+            className="text-zinc-500 hover:text-white transition-colors p-1"
           >
-            {fullscreen
-              ? <Minimize className="w-4 h-4" />
-              : <Maximize className="w-4 h-4" />
-            }
+            {fullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
           </button>
         </div>
       </div>
 
-      {/* ── Highlight Clips Strip ──────────────────────────────────────────── */}
-      {highlights.length > 0 && (
-        <div className="bg-zinc-950 border-t border-zinc-800 px-3 py-2">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Film className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">
-              Highlights
-            </span>
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
-            {highlights.map((h, i) => {
-              const col = getEventColor(h.eventType ?? "");
-              return (
-                <button
-                  key={h.id}
-                  onClick={() => playHighlight(h)}
-                  title={h.commentary ?? h.eventType ?? "Highlight"}
-                  className="shrink-0 flex flex-col gap-0.5 bg-zinc-900 hover:bg-zinc-800
-                             border border-zinc-800 hover:border-zinc-600 rounded-lg
-                             px-3 py-2 text-left transition-all group/hl min-w-[90px]"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: col }}
-                    />
-                    <span className="text-[10px] font-bold text-zinc-300">
-                      #{i + 1}
+      <AnimatePresence>
+        {highlights.length > 0 && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            className="bg-zinc-950 border-t border-white/5 px-4 py-3 overflow-hidden"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Film className="w-4 h-4 text-warning" />
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                Key Highlights
+              </span>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
+              {highlights.map((h, i) => {
+                const col = getEventColor(h.eventType ?? "");
+                return (
+                  <motion.button
+                    key={h.id}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => playHighlight(h)}
+                    className="shrink-0 flex flex-col gap-1 bg-zinc-900/40 hover:bg-zinc-900 
+                               border border-white/5 hover:border-primary/30 rounded-2xl
+                               px-4 py-3 text-left transition-all group/hl min-w-[120px] shadow-lg"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-zinc-600">0{i + 1}</span>
+                      <span
+                        className="w-2 h-2 rounded-full border border-black/20"
+                        style={{ background: col }}
+                      />
+                    </div>
+                    <span className="font-mono text-[11px] font-bold text-zinc-300">
+                      {formatTime(h.startTime)}
                     </span>
-                  </div>
-                  <span className="font-mono text-[10px] text-zinc-500">
-                    {formatTime(h.startTime)} – {formatTime(h.endTime)}
-                  </span>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <Play className="w-2.5 h-2.5 text-emerald-400" />
-                    {h.commentary && (
-                      <span title="Has commentary (will be spoken)">
-                        <MessageSquare className="w-2.5 h-2.5 text-blue-400" />
-                      </span>
-                    )}
-                    <span className="ml-auto text-[9px] font-mono text-zinc-600">
-                      {h.score.toFixed(1)}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                    <div className="flex items-center gap-2 mt-1">
+                      <Play className="w-3 h-3 text-primary group-hover/hl:scale-125 transition-transform" />
+                      <span className="text-[11px] font-bold text-primary">{h.score.toFixed(1)}</span>
+                      {h.commentary && (
+                        <MessageSquare className="ml-auto w-3.5 h-3.5 text-zinc-600" />
+                      )}
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

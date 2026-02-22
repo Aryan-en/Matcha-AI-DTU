@@ -19,7 +19,7 @@ import { Throttle } from '@nestjs/throttler';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { MatchesService } from './matches.service';
-import { Match } from '@prisma/client';
+import { Match } from "@matcha/database";
 import 'multer';
 
 @Controller('matches')

@@ -1,0 +1,15 @@
+{
+    "name": "@matcha/eslint-config",
+    "version": "0.0.0",
+    "private": true,
+    "license": "MIT",
+    "main": "index.js",
+    "dependencies": {
+        "eslint": "^8.56.0",
+        "@typescript-eslint/eslint-plugin": "^7.1.1",
+        "@typescript-eslint/parser": "^7.1.1",
+        "eslint-config-next": "15.1.7",
+        "eslint-config-prettier": "^9.1.0",
+        "eslint-plugin-react": "^7.33.2"
+    }
+}

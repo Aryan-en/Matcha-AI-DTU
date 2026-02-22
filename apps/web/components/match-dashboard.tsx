@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2, Upload, XCircle, LayoutGrid, Clock, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Loader2, Upload, XCircle, LayoutGrid, Clock, AlertTriangle, PlayCircle, BarChart3, Scissors, RefreshCw } from "lucide-react";
 import { useMatches } from "@/hooks/useMatches";
 import { motion, AnimatePresence } from "framer-motion";
 import { STATUS_CONFIG as SHARED_STATUS_CONFIG, formatTime, timeAgo } from "@matcha/shared";
@@ -36,6 +36,12 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
     setDeletingId(null);
     setConfirmId(null);
   }, [deleteMatch]);
+
+  const handleReanalyze = useCallback(async (id: string) => {
+    // In a real app, this would call an API endpoint like POST /matches/:id/reanalyze
+    // For now, we'll simulate it by logging
+    console.log("Reanalyzing match:", id);
+  }, []);
 
   const visible = filter === "ALL" ? matches : matches.filter((m) => m.status === filter);
 
@@ -94,6 +100,25 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
         </div>
       )}
 
+      {/* Header for Stats - Aligned to Card Grid - Hidden on Mobile */}
+      {visible.length > 0 && (
+        <div className="hidden lg:grid grid-cols-[120px,1fr,80px,80px,80px,120px,120px] gap-0 px-0 border-b border-border/20 bg-muted/5">
+          <div className="flex items-center justify-center font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/30 border-r border-border/10">PREV</div>
+          <div className="flex items-center px-5 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/30">INTELLIGENCE FEED</div>
+          <div className="flex items-center justify-center text-muted-foreground/30 border-l border-border/10">
+            <PlayCircle className="size-3" />
+          </div>
+          <div className="flex items-center justify-center text-muted-foreground/30 border-l border-border/10">
+            <BarChart3 className="size-3" />
+          </div>
+          <div className="flex items-center justify-center text-muted-foreground/30 border-l border-border/10">
+            <Scissors className="size-3" />
+          </div>
+          <div className="flex items-center justify-center font-mono text-[9px] uppercase tracking-widest text-muted-foreground/30 border-l border-border/10">SHORTCUTS</div>
+          <div className="flex items-center justify-center font-mono text-[9px] uppercase tracking-widest text-muted-foreground/30 border-l border-border/10">CONTROL</div>
+        </div>
+      )}
+
       {/* Empty State */}
       {!visible.length && (
         <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border/60 bg-[radial-gradient(ellipse_at_center,_var(--surface-2)_0%,_transparent_100%)]">
@@ -108,7 +133,20 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
       )}
 
       {/* Match Grid / List */}
-      <div className="grid grid-cols-1 gap-3">
+      <motion.div 
+        className="grid grid-cols-1 gap-4"
+        initial="hidden"
+        animate="show"
+        variants={{
+          hidden: { opacity: 0 },
+          show: {
+            opacity: 1,
+            transition: {
+              staggerChildren: 0.05
+            }
+          }
+        }}
+      >
         <AnimatePresence mode="popLayout">
           {visible.map((m) => {
             const cfg = STATUS_CONFIG[m.status] ?? STATUS_CONFIG.UPLOADED;
@@ -119,133 +157,179 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
             
             // Re-map colors to match our theme strictly
             const accentColor = m.status === "COMPLETED" ? "var(--green)" 
-                              : m.status === "PROCESSING" ? "oklch(60% 0.15 250)" // Blue
-                              : m.status === "FAILED" ? "var(--red)" 
-                              : "var(--amber-dim)";
+                               : m.status === "PROCESSING" ? "oklch(60% 0.15 250)" // Blue
+                               : m.status === "FAILED" ? "var(--red)" 
+                               : "var(--amber-dim)";
+
+            const formattedDate = new Date(m.createdAt).toLocaleDateString('en-US', {
+              month: 'short', day: 'numeric', year: 'numeric'
+            });
+
+            const formattedTime = new Date(m.createdAt).toLocaleTimeString('en-US', {
+              hour: '2-digit', minute: '2-digit'
+            });
 
             return (
               <motion.div 
                 key={m.id} 
                 layout
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  show: { opacity: 1, y: 0 }
+                }}
                 exit={{ opacity: 0, scale: 0.98, filter: "brightness(0.5)", transition: { duration: 0.2 } }}
-                className="card relative group bg-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)]" 
+                className="card relative group bg-card/40 backdrop-blur-md border border-white/5 transition-all duration-300 hover:bg-card/60 hover:border-white/10" 
               >
                 {/* Left Status Bar */}
                 <div 
-                  className="absolute left-0 top-0 bottom-0 w-1.5 transition-all duration-300 group-hover:w-2" 
-                  style={{ backgroundColor: accentColor, opacity: 0.8, boxShadow: `0 0 12px ${accentColor}` }}
+                  className="absolute left-0 top-0 bottom-0 w-1 transition-all duration-500 group-hover:w-1.5" 
+                  style={{ 
+                    backgroundColor: accentColor, 
+                    opacity: 0.8, 
+                    boxShadow: `4px 0 20px -4px ${accentColor}` 
+                  }}
                 />
 
-                {/* Processing Progress Overlay */}
-                {isProcessing && progress > 0 && (
-                  <div className="absolute left-1.5 top-0 bottom-0 bg-blue-500/5 transition-[width] duration-300 ease-out z-0" style={{ width: `${progress}%` }} />
-                )}
+                <div className="flex flex-col lg:flex-row lg:h-[72px] items-stretch relative overflow-hidden">
+                  
+                  {/* Top Bar (Mobile Only) - Status indicator */}
+                  <div className="lg:hidden flex items-center justify-between px-4 py-2 border-b border-white/5 bg-white/[0.02]">
+                    <div className={`px-1.5 py-0.5 border font-mono text-[7px] uppercase tracking-[0.1em] font-bold ${cfg.color}`}>
+                      {cfg.label}
+                    </div>
+                    <span className="font-mono text-[8px] text-muted-foreground/60 uppercase tracking-widest">
+                      {timeAgo(m.createdAt)}
+                    </span>
+                  </div>
 
-                <Link 
-                  href={`/matches/${m.id}`} 
-                  className="block p-4 sm:p-5 pl-5 sm:pl-7 relative z-10 focus:outline-none focus-visible:bg-white/5"
-                  onKeyDown={(e) => {
-                    if (e.key === "Delete" || e.key === "Backspace") {
-                      e.preventDefault();
-                      setConfirmId(m.id);
-                    }
-                  }}
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-4">
-                    
-                    {/* Left side: Hero ID & Status */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 sm:gap-3 mb-1.5 sm:mb-2 flex-wrap">
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1 border font-mono text-[9px] uppercase tracking-widest ${cfg.color}`}>
-                          {cfg.icon}
-                          {cfg.label}
-                          {isProcessing && progress > 0 && <span className="ml-1 font-bold">{progress}%</span>}
+                  <div className="flex flex-1 items-stretch min-h-[80px] lg:min-h-0">
+                    {/* Thumbnail Section */}
+                    <Link 
+                      href={`/matches/${m.id}`}
+                      className="w-[80px] sm:w-[100px] lg:w-[120px] h-full shrink-0 relative overflow-hidden group/thumb border-r border-white/10 bg-black/40"
+                    >
+                      {m.thumbnailUrl || m.heatmapUrl ? (
+                        <img 
+                          src={m.thumbnailUrl || m.heatmapUrl || ""} 
+                          alt="Preview" 
+                          className="w-full h-full object-cover opacity-60 group-hover/thumb:opacity-100 transition-all duration-700 scale-110 group-hover/thumb:scale-100 saturate-50 group-hover/thumb:saturate-100" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-muted/10">
+                          <PlayCircle className="size-5 text-muted-foreground/20" />
                         </div>
-                        <div className="flex items-center text-muted-foreground">
-                          <Clock className="size-3 mr-1.5 opacity-50" />
-                          <span className="font-mono text-[10px] uppercase tracking-wider">{timeAgo(m.createdAt)}</span>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-transparent opacity-60" />
+                    </Link>
+
+                    {/* Main Identity Area */}
+                    <Link 
+                      href={`/matches/${m.id}`} 
+                      className="flex-1 flex flex-col justify-center px-4 sm:px-6 min-w-0 group/id focus:outline-none"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className={`hidden lg:block px-1.5 py-0.5 border font-mono text-[7px] uppercase tracking-[0.1em] font-bold shrink-0 ${cfg.color} ${m.status === 'PROCESSING' ? 'animate-pulse' : ''}`}>
+                          {cfg.label}
+                        </div>
+                        <h4 className="font-display text-sm sm:text-base tracking-[0.05em] text-foreground group-hover/id:text-white transition-colors truncate">
+                          {formattedDate} — Analysis
+                        </h4>
+                      </div>
+                      <p className="font-mono text-[8px] sm:text-[9px] text-muted-foreground/40 uppercase tracking-widest truncate">
+                         {formattedTime} • ID: {m.id.split('-')[0]}
+                      </p>
+                    </Link>
+                  </div>
+
+                  {/* Stats & Controls Wrapper */}
+                  <div className="flex flex-col sm:flex-row lg:flex-row items-stretch border-t lg:border-t-0 lg:border-l border-white/5">
+                    
+                    {/* Stats Columns - Re-flow on mobile */}
+                    <div className="flex flex-1 items-stretch divide-x divide-white/5 border-b sm:border-b-0 sm:border-r border-white/5 lg:border-r-0">
+                      <div className="flex-1 lg:w-[70px] xl:w-[80px] flex items-center justify-center py-3 lg:py-0 bg-white/[0.01]">
+                        <div className="flex flex-col items-center">
+                          <span className="lg:hidden font-mono text-[7px] text-muted-foreground/40 uppercase mb-1">Duration</span>
+                          <span className="font-mono text-[10px] text-white/70 tabular-nums">{m.duration ? formatTime(m.duration) : "--:--"}</span>
                         </div>
                       </div>
-                      <h4 className="font-display text-lg sm:text-2xl tracking-wide text-foreground group-hover:text-white transition-colors truncate">
-                        {m.id}
-                      </h4>
+                      <div className="flex-1 lg:w-[70px] xl:w-[80px] flex items-center justify-center py-3 lg:py-0">
+                        <div className="flex flex-col items-center">
+                          <span className="lg:hidden font-mono text-[7px] text-muted-foreground/40 uppercase mb-1">Events</span>
+                          <span className="font-display text-[14px] text-accent drop-shadow-[0_0_8px_rgba(var(--color-accent),0.4)]">
+                            {m.status === "COMPLETED" ? m._count.events.toString().padStart(2, "0") : "--"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex-1 lg:w-[70px] xl:w-[80px] flex items-center justify-center py-3 lg:py-0 bg-white/[0.01]">
+                         <div className="flex flex-col items-center">
+                          <span className="lg:hidden font-mono text-[7px] text-muted-foreground/40 uppercase mb-1">Reels</span>
+                          <span className="font-display text-[14px] text-primary drop-shadow-[0_0_8px_rgba(var(--color-primary),0.4)]">
+                            {m.status === "COMPLETED" ? m._count.highlights.toString().padStart(2, "0") : "--"}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Right side: Broadcast Metrics */}
-                    <div className="flex items-center justify-start md:justify-end gap-3 sm:gap-4 text-left md:text-right shrink-0 mt-2 md:mt-0">
-                      
-                      {/* Duration */}
-                      {m.duration != null && m.duration > 0 && (
-                        <div className="flex flex-col items-start md:items-end">
-                          <span className="font-mono text-[8px] text-muted-foreground uppercase tracking-widest mb-0.5 sm:mb-1">RUNTIME</span>
-                          <span className="font-mono text-xs sm:text-sm text-foreground/90">{formatTime(m.duration ?? 0)}</span>
-                        </div>
-                      )}
+                    {/* Actions Area */}
+                    <div className="flex items-stretch divide-x divide-white/5 lg:divide-x-0">
+                      {/* Highlight Shortcut */}
+                      <div className="flex-1 sm:flex-none lg:w-[120px] flex items-center justify-center px-4 py-3 lg:py-0 border-r lg:border-r-0 lg:border-l border-white/5">
+                         <Link
+                            href={`/matches/${m.id}#highlights`}
+                            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent/5 hover:bg-accent/15 border border-accent/20 hover:border-accent/40 text-accent transition-all group/high rounded-sm"
+                          >
+                             <Scissors className="size-3 transition-transform" />
+                             <span className="font-mono text-[8px] uppercase tracking-widest font-bold">Highlights</span>
+                          </Link>
+                      </div>
 
-                      {/* Stat Pills */}
-                      {m.status === "COMPLETED" && (
-                        <>
-                          <div className="w-px h-6 sm:h-8 bg-border/50 mx-1 hidden md:block" />
-                          <div className="flex flex-col items-start md:items-end">
-                            <span className="font-mono text-[8px] text-muted-foreground uppercase tracking-widest mb-0.5 sm:mb-1">EVENTS</span>
-                            <span className="font-mono text-xs sm:text-sm px-1.5 sm:px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-sm">
-                              {m._count.events.toString().padStart(2, "0")}
-                            </span>
+                      {/* Control Panel */}
+                      <div className="flex-1 sm:flex-none lg:w-[120px] flex items-center justify-center px-4 py-3 lg:py-0 border-l border-white/10 bg-white/[0.02]">
+                        {!isConfirming ? (
+                          <div className="flex items-center gap-3 lg:gap-2">
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleReanalyze(m.id); }}
+                              className="flex items-center justify-center size-9 lg:size-8 bg-white/5 hover:bg-accent/10 text-muted-foreground hover:text-accent border border-white/5 hover:border-accent/30 transition-all rounded-full"
+                              title="Reanalyze"
+                            >
+                              <RefreshCw className="size-4 lg:size-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmId(m.id); }}
+                              className="flex items-center justify-center size-9 lg:size-8 bg-white/5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive border border-white/5 hover:border-destructive/30 transition-all rounded-full"
+                              title="Delete"
+                            >
+                              <XCircle className="size-4 lg:size-3.5" />
+                            </button>
                           </div>
-                          <div className="flex flex-col items-start md:items-end">
-                            <span className="font-mono text-[8px] text-muted-foreground uppercase tracking-widest mb-0.5 sm:mb-1">CLIPS</span>
-                            <span className="font-mono text-xs sm:text-sm px-1.5 sm:px-2 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded-sm">
-                              {m._count.highlights.toString().padStart(2, "0")}
-                            </span>
+                        ) : (
+                          <div className="flex items-center bg-card shadow-2xl scale-95 lg:scale-90 border border-destructive/20 overflow-hidden">
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(m.id); }}
+                              disabled={isDeleting}
+                              className="font-mono px-4 lg:px-3 py-2.5 lg:py-2 text-[9px] lg:text-[8px] bg-destructive text-white uppercase tracking-widest font-bold hover:brightness-110"
+                            >
+                              {isDeleting ? "..." : "DEL"}
+                            </button>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmId(null); }}
+                              className="font-mono px-4 lg:px-3 py-2.5 lg:py-2 text-[9px] lg:text-[8px] text-muted-foreground hover:bg-white/5 uppercase tracking-widest border-l border-white/10"
+                            >
+                              X
+                            </button>
                           </div>
-                        </>
-                      )}
+                        )}
+                      </div>
                     </div>
 
                   </div>
-                </Link>
-
-                {/* Highly Visible Delete Action */}
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20">
-                  {!isConfirming ? (
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmId(m.id); }}
-                      className="opacity-0 group-hover:opacity-100 transition-all duration-200 p-2.5 bg-background/50 hover:bg-destructive/10 text-muted-foreground hover:text-destructive border border-transparent hover:border-destructive/30 backdrop-blur-sm cursor-pointer"
-                      title="Terminate Feed"
-                    >
-                      <XCircle className="size-4" />
-                    </button>
-                  ) : (
-                    <div className="flex items-center bg-card border border-destructive/50 shadow-lg overflow-hidden animate-in fade-in slide-in-from-right-2">
-                      <div className="bg-destructive/10 px-3 py-2 flex items-center justify-center border-r border-destructive/30">
-                        <AlertTriangle className="size-3.5 text-destructive animate-pulse" />
-                        <span className="font-mono text-[9px] text-destructive ml-2 uppercase tracking-widest font-bold">TERMINATE?</span>
-                      </div>
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(m.id); }}
-                        disabled={isDeleting}
-                        className="font-mono px-4 py-2 text-[10px] text-foreground hover:bg-destructive hover:text-white transition-colors uppercase tracking-widest font-bold"
-                      >
-                        {isDeleting ? "..." : "YES"}
-                      </button>
-                      <div className="w-px bg-border h-full" />
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmId(null); }}
-                        className="font-mono px-4 py-2 text-[10px] text-muted-foreground hover:bg-muted transition-colors uppercase tracking-widest"
-                      >
-                        NO
-                      </button>
-                    </div>
-                  )}
                 </div>
 
               </motion.div>
             );
           })}
         </AnimatePresence>
-      </div>
+      </motion.div>
     </div>
   );
 });

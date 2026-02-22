@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { createApiClient } from "@matcha/shared";
 
 // Initialize API client
-const api = createApiClient(process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:4000/api/v1");
+const api = createApiClient(process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:4000");
 
 interface User {
   id: string;
