@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MatchesModule } from './matches/matches.module';
 import { EventsModule } from './events/events.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -18,10 +19,17 @@ import { EventsModule } from './events/events.module';
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', '..', '..', 'uploads'),
       serveRoot: '/uploads',
+      serveStaticOptions: {
+        setHeaders: (res) => {
+          res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+          res.set('Access-Control-Allow-Origin', '*');
+        },
+      },
     }),
 
     MatchesModule,
     EventsModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

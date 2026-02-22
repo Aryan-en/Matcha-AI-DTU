@@ -6,44 +6,8 @@ import { firstValueFrom } from 'rxjs';
 import * as fs from 'fs';
 import * as path from 'path';
 import 'multer';
+import { WsEvents, isYoutubeUrl, AnalysisPayload } from '@matcha/shared';
 
-interface IncomingEvent {
-  timestamp: number;
-  type: string;
-  confidence: number;
-  finalScore?: number;
-  commentary?: string;
-}
-
-interface IncomingHighlight {
-  startTime: number;
-  endTime: number;
-  score: number;
-  eventType?: string;
-  commentary?: string;
-  videoUrl?: string;
-}
-
-interface IncomingEmotionScore {
-  timestamp: number;
-  audioScore: number;
-  motionScore: number;
-  contextWeight: number;
-  finalScore: number;
-}
-
-interface CompletePayload {
-  events: IncomingEvent[];
-  highlights?: IncomingHighlight[];
-  emotionScores?: IncomingEmotionScore[];
-  duration?: number;
-  summary?: string;
-  highlightReelUrl?: string;
-  trackingData?: any[]; // normalised bbox frames [{t, b, p}]
-  teamColors?: number[][]; // [[R,G,B],[R,G,B]]
-  heatmapUrl?: string;   // URL to player density heatmap PNG
-  topSpeedKmh?: number;  // Top estimated ball speed in km/h
-}
 
 @Injectable()
 export class MatchesService {
@@ -57,7 +21,7 @@ export class MatchesService {
     this.prisma = new PrismaClient();
   }
 
-  async create(file: Express.Multer.File): Promise<Match> {
+  async create(file: Express.Multer.File, userId: string): Promise<Match> {
     if (!file || !file.originalname) {
       throw new Error("Invalid file upload");
     }
@@ -99,10 +63,34 @@ export class MatchesService {
         uploadUrl: publicUrl,
         status: 'UPLOADED',
         duration: 0,
+        userId,
       },
     });
 
     this.triggerInference(match.id, filePath);
+
+    return match;
+  }
+
+  async createFromYoutube(url: string, userId: string): Promise<Match> {
+    if (!url || !isYoutubeUrl(url)) {
+      throw new Error("Invalid YouTube URL");
+    }
+
+    const match = await this.prisma.match.create({
+      data: {
+        uploadUrl: url,
+        status: 'UPLOADED',
+        duration: 0,
+        userId,
+      },
+    });
+
+    this.logger.log(`Created match ${match.id} from YouTube URL: ${url}`);
+    
+    // Pass the raw YouTube URL to inference.
+    // The inference service's analysis.py will intercept it and download via yt-dlp
+    this.triggerInference(match.id, url);
 
     return match;
   }
@@ -136,19 +124,23 @@ export class MatchesService {
             .catch(() => {});
           this.eventsGateway.server
             .to(matchId)
-            .emit('progress', { matchId, progress: -1 });
+            .emit(WsEvents.PROGRESS, { matchId, progress: -1 });
           return;
         }
         // Exponential backoff: 2s, 4s, 8s, 16s
         const delay = baseDelayMs * Math.pow(2, attempt - 1);
         this.logger.log(`Retrying in ${delay}ms...`);
-        await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
 
-  async findAll() {
+  async findAll(userId?: string) {
+    const where = userId 
+      ? { OR: [{ userId }, { userId: null }] }
+      : { userId: null };
+
     const matches = await this.prisma.match.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { events: true, highlights: true } },
@@ -157,9 +149,13 @@ export class MatchesService {
     return matches;
   }
 
-  async findOne(id: string) {
-    return this.prisma.match.findUnique({
-      where: { id },
+  async findOne(id: string, userId?: string) {
+    const where = userId
+      ? { id, OR: [{ userId }, { userId: null }] }
+      : { id, userId: null };
+
+    return this.prisma.match.findFirst({
+      where,
       include: {
         events: { orderBy: { timestamp: 'asc' } },
         highlights: { orderBy: { startTime: 'asc' } },
@@ -175,7 +171,7 @@ export class MatchesService {
      * the browser can populate the event feed in real-time.
      * We do NOT save to DB here – the final complete() call saves everything.
      */
-    this.eventsGateway.server.to(id).emit('matchEvent', {
+    this.eventsGateway.server.to(id).emit(WsEvents.MATCH_EVENT, {
       matchId: id,
       event,
     });
@@ -192,10 +188,10 @@ export class MatchesService {
       .catch((err: any) => {
         this.logger.warn(`Failed to update progress for match ${id}: ${err.message}`);
       });
-    this.eventsGateway.server.to(id).emit('progress', { matchId: id, progress });
+    this.eventsGateway.server.to(id).emit(WsEvents.PROGRESS, { matchId: id, progress });
   }
 
-  async completeMatch(id: string, payload: CompletePayload) {
+  async completeMatch(id: string, payload: AnalysisPayload) {
     if (!id || !payload) {
       throw new Error("Invalid match ID or payload");
     }
@@ -211,6 +207,7 @@ export class MatchesService {
       teamColors,
       heatmapUrl,
       topSpeedKmh,
+      videoUrl,
     } = payload;
 
     const typeMap: Record<string, EventType> = {
@@ -274,12 +271,13 @@ export class MatchesService {
           teamColors,
           heatmapUrl: heatmapUrl ?? null,
           topSpeedKmh: topSpeedKmh ?? null,
+          ...(videoUrl ? { uploadUrl: videoUrl } : {}),
         } as any,
       }),
     ]);
 
-    this.eventsGateway.server.to(id).emit('progress', { matchId: id, progress: 100 });
-    this.eventsGateway.server.to(id).emit('complete', {
+    this.eventsGateway.server.to(id).emit(WsEvents.PROGRESS, { matchId: id, progress: 100 });
+    this.eventsGateway.server.to(id).emit(WsEvents.COMPLETE, {
       matchId: id,
       eventCount: validEvents.length,
       highlightCount: validHighlights.length,
@@ -291,13 +289,13 @@ export class MatchesService {
     return { ok: true };
   }
 
-  async reanalyzeMatch(id: string): Promise<{ ok: boolean }> {
+  async reanalyzeMatch(id: string, userId: string): Promise<{ ok: boolean }> {
     if (!id || typeof id !== 'string') {
       this.logger.error("Invalid match ID for reanalysis");
       return { ok: false };
     }
     
-    const match = await this.prisma.match.findUnique({ where: { id } });
+    const match = await this.prisma.match.findFirst({ where: { id, OR: [{ userId }, { userId: null }] } });
     if (!match) {
       this.logger.warn(`Match not found: ${id}`);
       return { ok: false };
@@ -339,7 +337,10 @@ export class MatchesService {
     return { ok: true };
   }
 
-  async deleteMatch(id: string): Promise<{ ok: boolean }> {
+  async deleteMatch(id: string, userId: string): Promise<{ ok: boolean }> {
+    const match = await this.prisma.match.findFirst({ where: { id, OR: [{ userId }, { userId: null }] } });
+    if (!match) return { ok: false };
+
     await this.prisma.$transaction([
       this.prisma.event.deleteMany({ where: { matchId: id } }),
       this.prisma.highlight.deleteMany({ where: { matchId: id } }),

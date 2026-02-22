@@ -10,57 +10,50 @@ import {
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import VideoPlayer from "@/components/VideoPlayer";
+import dynamic from "next/dynamic";
+
+import { ScoreBadge } from "@/components/ScoreBadge";
+import { CopyButton } from "@/components/CopyButton";
+
+// PDFReportButton wraps both PDFDownloadLink and MatchReportPDF.
+// It must be loaded dynamically with ssr:false — @react-pdf/renderer is
+// ESM-only and crashes if Next.js evaluates it server-side.
+const PDFReportButton = dynamic(
+  () => import("@/components/PDFReportButton"),
+  { ssr: false }
+);
 
 import type { MatchEvent, Highlight, EmotionScore, TrackFrame, MatchDetail } from "@matcha/shared";
 import {
   getTop5Moments, countEventsByType, filterEventsByType,
   getLiveIntensity, avgConfidence, maxScore, formatTime,
+  timeAgo,
   EVENT_CONFIG as SHARED_EVENT_CONFIG, DEFAULT_EVENT_CONFIG,
   STATUS_CONFIG,
 } from "@matcha/shared";
+import { createApiClient } from "@matcha/shared";
 
-// Web-only props on EVENT_CONFIG (icon, bg, border) — extend the shared colour config
-import type React from "react";
-const EVENT_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  GOAL:      { ...SHARED_EVENT_CONFIG.GOAL,      bg: "bg-emerald-400/15", border: "border-emerald-400/40", icon: <Target className="w-3.5 h-3.5" /> },
-  TACKLE:    { ...SHARED_EVENT_CONFIG.TACKLE,    bg: "bg-amber-400/15",   border: "border-amber-400/40",   icon: <Zap className="w-3.5 h-3.5" /> },
-  FOUL:      { ...SHARED_EVENT_CONFIG.FOUL,      bg: "bg-red-400/15",     border: "border-red-400/40",     icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  SAVE:      { ...SHARED_EVENT_CONFIG.SAVE,      bg: "bg-blue-400/15",    border: "border-blue-400/40",    icon: <Shield className="w-3.5 h-3.5" /> },
-  Celebrate: { ...SHARED_EVENT_CONFIG.Celebrate, bg: "bg-purple-400/15",  border: "border-purple-400/40",  icon: <Star className="w-3.5 h-3.5" /> },
+// Web-only props on EVENT_CONFIG (icon, bg, border) — extend the shared logic
+const THEME_MAP: Record<string, { bg: string; border: string; color: string }> = {
+  success: { bg: "bg-emerald-400/15", border: "border-emerald-400/40", color: "text-emerald-400" },
+  warning: { bg: "bg-amber-400/15",   border: "border-amber-400/40",   color: "text-amber-400" },
+  error:   { bg: "bg-red-400/15",     border: "border-red-400/40",     color: "text-red-400"   },
+  info:    { bg: "bg-blue-400/15",    border: "border-blue-400/40",    color: "text-blue-400"  },
+  accent:  { bg: "bg-purple-400/15",  border: "border-purple-400/40",  color: "text-purple-400"},
+  neutral: { bg: "bg-zinc-400/15",    border: "border-zinc-400/40",    color: "text-zinc-400"  },
 };
-const DEFAULT_EVT = { ...DEFAULT_EVENT_CONFIG, bg: "bg-zinc-400/15", border: "border-zinc-400/40", icon: <Star className="w-3.5 h-3.5" /> };
 
-function fmt(secs: number) { return formatTime(secs); }
+const EVENT_CONFIG: Record<string, { label: string; bg: string; border: string; color: string; icon: React.ReactNode }> = {
+  GOAL:      { ...SHARED_EVENT_CONFIG.GOAL,      ...THEME_MAP[SHARED_EVENT_CONFIG.GOAL.theme],      icon: <Target className="w-3.5 h-3.5" /> },
+  TACKLE:    { ...SHARED_EVENT_CONFIG.TACKLE,    ...THEME_MAP[SHARED_EVENT_CONFIG.TACKLE.theme],    icon: <Zap className="w-3.5 h-3.5" /> },
+  FOUL:      { ...SHARED_EVENT_CONFIG.FOUL,      ...THEME_MAP[SHARED_EVENT_CONFIG.FOUL.theme],      icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  SAVE:      { ...SHARED_EVENT_CONFIG.SAVE,      ...THEME_MAP[SHARED_EVENT_CONFIG.SAVE.theme],      icon: <Shield className="w-3.5 h-3.5" /> },
+  Celebrate: { ...SHARED_EVENT_CONFIG.Celebrate, ...THEME_MAP[SHARED_EVENT_CONFIG.Celebrate.theme], icon: <Star className="w-3.5 h-3.5" /> },
+};
+const DEFAULT_EVT = { ...DEFAULT_EVENT_CONFIG, ...THEME_MAP[DEFAULT_EVENT_CONFIG.theme], icon: <Star className="w-3.5 h-3.5" /> };
 
 
-function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 7.5 ? "text-emerald-400" : score >= 5 ? "text-amber-400" : "text-zinc-500";
-  return (
-    <span className={`font-mono text-sm font-bold ${color}`}>
-      {score.toFixed(1)}
-    </span>
-  );
-}
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <button
-      onClick={copy}
-      className="p-1 rounded text-zinc-600 transition-all duration-200 hover:text-zinc-300 hover:bg-zinc-700 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
-      title="Copy commentary"
-      aria-label="Copy commentary to clipboard"
-    >
-      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-    </button>
-  );
-}
 
 
 function IntensityChart({ scores, duration }: { scores: EmotionScore[]; duration: number }) {
@@ -101,7 +94,7 @@ function IntensityChart({ scores, duration }: { scores: EmotionScore[]; duration
         )}
       </svg>
       <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-        <span>0:00</span><span>{fmt(duration / 2)}</span><span>{fmt(duration)}</span>
+        <span>0:00</span><span>{formatTime(duration / 2)}</span><span>{formatTime(duration)}</span>
       </div>
     </div>
   );
@@ -124,7 +117,7 @@ function EventsTimeline({ events, duration, onSeek }: { events: MatchEvent[]; du
           return (
             <button
               key={ev.id}
-              title={`${cfg.label} @ ${fmt(ev.timestamp)} (score: ${ev.finalScore.toFixed(1)})`}
+              title={`${cfg.label} @ ${formatTime(ev.timestamp)} (score: ${ev.finalScore.toFixed(1)})`}
               onClick={() => onSeek(ev.timestamp)}
               className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-black cursor-pointer hover:scale-150 transition-transform z-10 ${cfg.color.replace("text-", "bg-")}`}
               style={{ left: `${pct}%` }}
@@ -133,7 +126,7 @@ function EventsTimeline({ events, duration, onSeek }: { events: MatchEvent[]; du
         })}
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
-        <span>0:00</span><span>{fmt(duration / 2)}</span><span>{fmt(duration)}</span>
+        <span>0:00</span><span>{formatTime(duration / 2)}</span><span>{formatTime(duration)}</span>
       </div>
       <div className="flex flex-wrap gap-3 mt-3">
         {Object.entries(EVENT_CONFIG).map(([k, v]) => (
@@ -213,15 +206,23 @@ export default function MatchDetailPage() {
     }
   }, []);
 
+  const API_BASE = "http://localhost:4000";
+  const client = useMemo(() => createApiClient(`${API_BASE}/api/v1`), []);
+
+  const getAssetUrl = useCallback((url: string | null) => client.getAssetUrl(url), [client]);
+
   useEffect(() => {
     if (!id) return;
 
     const load = async () => {
       try {
-        const res = await fetch(`http://localhost:4000/api/v1/matches/${id}`);
-        if (res.ok) setMatch(await res.json());
-      } catch { /* ignore */ }
-      finally { setLoading(false); }
+        const data = await client.getMatch(id);
+        if (data && data.id) setMatch(data);
+      } catch (err) {
+        console.error("Match load failed:", err);
+      } finally {
+        setLoading(false);
+      }
     };
     load();
     const iv = setInterval(load, 5000);
@@ -258,20 +259,20 @@ export default function MatchDetailPage() {
   const handleDelete = useCallback(async () => {
     setDeleting(true);
     try {
-      await fetch(`http://localhost:4000/api/v1/matches/${id}`, { method: "DELETE" });
+      await client.deleteMatch(id);
       router.push("/");
     } catch { setDeleting(false); }
-  }, [id, router]);
+  }, [id, router, client]);
 
   const handleReanalyze = useCallback(async () => {
     setReanalyzing(true);
     try {
-      await fetch(`http://localhost:4000/api/v1/matches/${id}/reanalyze`, { method: "POST" });
+      await client.reanalyze(id);
       setMatch(prev => prev ? { ...prev, status: "PROCESSING", trackingData: null, teamColors: null } : prev);
     } catch { /* ignore */ } finally {
       setReanalyzing(false);
     }
-  }, [id]);
+  }, [id, client]);
 
   // useMemo calls must be above early returns — Rules of Hooks.
   // null-safe defaults ensure they always run unconditionally.
@@ -345,6 +346,23 @@ export default function MatchDetailPage() {
           }
           Re-analyze
         </button>
+        {/* PDF Report download — only on completed matches */}
+        {match.status === "COMPLETED" && (
+          <PDFReportButton
+            data={{
+              id: match.id,
+              status: match.status,
+              duration: match.duration ?? 0,
+              summary: match.summary ?? undefined,
+              createdAt: match.createdAt,
+              events: match.events,
+              highlights: match.highlights,
+              teamColors: match.teamColors ?? undefined,
+              heatmapUrl: match.heatmapUrl ?? undefined,
+              topSpeedKmh: match.topSpeedKmh ?? undefined,
+            }}
+          />
+        )}
         <button
           onClick={() => setShowDeleteModal(true)}
           className="flex items-center gap-1.5 text-[10px] sm:text-xs text-zinc-500 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 px-3 sm:px-4 py-1.5 transition-all duration-200 uppercase tracking-wide cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
@@ -357,7 +375,7 @@ export default function MatchDetailPage() {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: "Duration",    value: fmt(duration),                       sub: "match length" },
+            { label: "Duration",    value: formatTime(duration),                       sub: "match length" },
             { label: "Events",      value: match.events.length.toString(),      sub: `${(avgConf * 100).toFixed(0)}% avg conf` },
             { label: "Highlights",  value: match.highlights.length.toString(),  sub: "key moments" },
             { label: "Top Score",   value: topScore.toFixed(1),                 sub: "out of 10" },
@@ -430,7 +448,7 @@ export default function MatchDetailPage() {
 
                     {/* Meta Info */}
                     <p className="font-mono text-sm text-foreground/80 mb-1 group-hover:text-foreground transition-colors">
-                      {fmt(ev.timestamp)}
+                      {formatTime(ev.timestamp)}
                     </p>
                     
                     {/* Context Score */}
@@ -484,7 +502,7 @@ export default function MatchDetailPage() {
             {match.uploadUrl && (
               <div className="space-y-3">
                 <VideoPlayer
-                  src={match.uploadUrl}
+                  src={getAssetUrl(match.uploadUrl)}
                   events={match.events}
                   highlights={match.highlights}
                   initialTeamColors={match.teamColors}
@@ -503,7 +521,7 @@ export default function MatchDetailPage() {
                         {match.status === "PROCESSING" ? "Live" : "Full Time"}
                       </span>
                     </div>
-                    <span className="font-mono text-xs text-muted-foreground sm:hidden">{fmt(currentTime)}</span>
+                    <span className="font-mono text-xs text-muted-foreground sm:hidden">{formatTime(currentTime)}</span>
                   </div>
                   <div className="flex items-center gap-4 flex-1 w-full justify-between sm:justify-start">
                     <div className="text-center">
@@ -528,7 +546,7 @@ export default function MatchDetailPage() {
                       </div>
                     </div>
                   </div>
-                  <span className="font-mono text-xs text-muted-foreground hidden sm:block">{fmt(currentTime)}</span>
+                  <span className="font-mono text-xs text-muted-foreground hidden sm:block">{formatTime(currentTime)}</span>
                 </div>
               </div>
             )}
@@ -560,19 +578,22 @@ export default function MatchDetailPage() {
                   {sortedLive.map((ev, i) => {
                     const cfg = EVENT_CONFIG[ev.type] ?? DEFAULT_EVT;
                     return (
-                      <button
+                      <div
                         key={i}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => seekTo(ev.timestamp)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seekTo(ev.timestamp); } }}
                         className={`w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-muted transition-colors cursor-pointer focus:outline-none focus:bg-muted ${i === 0 ? 'animate-pulse' : ''}`}
                       >
                         <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 border shrink-0 ${cfg.bg} ${cfg.border} ${cfg.color}`}>
                           {cfg.icon} {cfg.label}
                         </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">{fmt(ev.timestamp)}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">{formatTime(ev.timestamp)}</span>
                         <span className={`ml-auto font-bold text-[10px] font-mono ${
                           ev.finalScore >= 7.5 ? 'text-emerald-400' : ev.finalScore >= 5 ? 'text-amber-400' : 'text-muted-foreground'
                         }`}>{ev.finalScore?.toFixed(1)}</span>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -648,7 +669,7 @@ export default function MatchDetailPage() {
 
                       <div className="flex items-center gap-3 text-xs text-muted-foreground mb-2">
                         <Clock className="size-3" />
-                        <span className="font-mono">{fmt(h.startTime)} → {fmt(h.endTime)}</span>
+                        <span className="font-mono">{formatTime(h.startTime)} → {formatTime(h.endTime)}</span>
                         <span className="text-muted-foreground/50">·</span>
                         <span>{Math.round(h.endTime - h.startTime)}s</span>
                       </div>
@@ -728,16 +749,19 @@ export default function MatchDetailPage() {
                   {filteredEvents.map((ev) => {
                     const cfg = EVENT_CONFIG[ev.type] ?? DEFAULT_EVT;
                     return (
-                      <button
+                      <div
                         key={ev.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => seekTo(ev.timestamp)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seekTo(ev.timestamp); } }}
                         className="w-full text-left border border-border hover:border-border-2 bg-card hover:bg-muted p-3 transition-all group cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset"
                       >
                         <div className="flex items-center gap-3">
                           <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 border shrink-0 ${cfg.bg} ${cfg.border} ${cfg.color}`}>
                             {cfg.icon} {cfg.label}
                           </span>
-                          <span className="text-xs text-muted-foreground font-mono shrink-0">{fmt(ev.timestamp)}</span>
+                          <span className="text-xs text-muted-foreground font-mono shrink-0">{formatTime(ev.timestamp)}</span>
                           <div className="flex-1 min-w-0">
                             {ev.commentary && (
                               <p className="text-xs text-muted-foreground/80 truncate group-hover:text-muted-foreground transition-colors">
@@ -753,7 +777,7 @@ export default function MatchDetailPage() {
                             <ScoreBadge score={ev.finalScore} />
                           </div>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -762,7 +786,7 @@ export default function MatchDetailPage() {
             {activeTab === "analytics" && (
               <div className="space-y-4">
                 {/* Ball Speed Stat */}
-                {(match as any).topSpeedKmh > 0 ? (
+                {match.topSpeedKmh && match.topSpeedKmh > 0 ? (
                   <div className="bg-card border border-border p-5">
                     <div className="flex items-center gap-2 mb-4">
                       <Zap className="size-4 text-amber-400" />
@@ -822,7 +846,7 @@ export default function MatchDetailPage() {
                     </div>
                     <div className="relative w-full overflow-hidden border border-border/50">
                       <img 
-                        src={(match as any).heatmapUrl} 
+                        src={getAssetUrl((match as any).heatmapUrl)} 
                         alt="Player heatmap" 
                         className="w-full h-auto object-contain"
                         loading="lazy"

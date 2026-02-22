@@ -35,6 +35,7 @@ export type TrackFrame = { t: number; b: number[][]; p: number[][] };
 export interface MatchDetail {
   id: string;
   status: MatchStatus;
+  progress: number;
   duration: number | null;
   uploadUrl: string;
   createdAt: string;
@@ -42,6 +43,8 @@ export interface MatchDetail {
   highlightReelUrl: string | null;
   trackingData: TrackFrame[] | null;
   teamColors: number[][] | null;
+  heatmapUrl: string | null;
+  topSpeedKmh: number | null;
   events: MatchEvent[];
   highlights: Highlight[];
   emotionScores: EmotionScore[];
@@ -54,7 +57,42 @@ export interface MatchSummary {
   duration: number | null;
   createdAt: string;
   uploadUrl: string;
+  heatmapUrl: string | null;
+  topSpeedKmh: number | null;
   _count: { events: number; highlights: number };
+}
+
+export interface AnalysisPayload {
+  events: {
+    timestamp: number;
+    type: string;
+    confidence: number;
+    finalScore?: number;
+    commentary?: string;
+  }[];
+  highlights?: {
+    startTime: number;
+    endTime: number;
+    score: number;
+    eventType?: string;
+    commentary?: string;
+    videoUrl?: string;
+  }[];
+  emotionScores?: {
+    timestamp: number;
+    audioScore: number;
+    motionScore: number;
+    contextWeight: number;
+    finalScore: number;
+  }[];
+  duration?: number;
+  summary?: string;
+  highlightReelUrl?: string;
+  trackingData?: TrackFrame[];
+  teamColors?: number[][];
+  heatmapUrl?: string;
+  topSpeedKmh?: number;
+  videoUrl?: string;
 }
 
 export type MatchStatus = "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED";

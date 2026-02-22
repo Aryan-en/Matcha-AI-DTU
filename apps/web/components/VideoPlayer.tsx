@@ -19,23 +19,15 @@ import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Gauge, Film, Volume1, MessageSquare, Cpu,
 } from "lucide-react";
+import { formatTime, MatchEvent, Highlight, EVENT_CONFIG, DEFAULT_EVENT_CONFIG } from "@matcha/shared";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-export interface VPEvent {
-  id: string; timestamp: number; type: string;
-  finalScore: number; commentary: string | null;
-}
-export interface VPHighlight {
-  id: string; startTime: number; endTime: number;
-  score: number; eventType: string | null; commentary: string | null; videoUrl: string | null;
-}
 // kept for page.tsx compat — VideoPlayer no longer reads this
 export type TrackFrame = { t: number; b: number[][]; p: number[][] };
 
 interface Props {
   src: string;
-  events:        VPEvent[];
-  highlights:    VPHighlight[];
+  events:        MatchEvent[];
+  highlights:    Highlight[];
   onTimeUpdate?: (t: number) => void;
   /** Parent can call seekTo from outside (e.g. Top 5 Moments buttons) */
   seekFnRef?:         React.MutableRefObject<(t: number) => void>;
@@ -80,13 +72,21 @@ function sampleJersey(
 }
 
 // ── Misc helpers ──────────────────────────────────────────────────────────────
-const fmt = (s: number) =>
-  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-const EVT_COLORS: Record<string, string> = {
-  GOAL: "#10b981", TACKLE: "#f59e0b", FOUL: "#ef4444",
-  SAVE: "#3b82f6", Celebrate: "#a855f7",
+// Map logical themes to hex for the canvas/seekbar markers
+const THEME_TO_HEX: Record<string, string> = {
+  success: "#10b981", // emerald-500 approx
+  warning: "#f59e0b", // amber-500 approx
+  error:   "#ef4444", // red-500 approx
+  info:    "#3b82f6", // blue-500 approx
+  accent:  "#a855f7", // purple-500 approx
+  neutral: "#71717a", // zinc-500 approx
 };
+
+function getEventColor(type: string): string {
+  const cfg = EVENT_CONFIG[type] || DEFAULT_EVENT_CONFIG;
+  return THEME_TO_HEX[cfg.theme] || THEME_TO_HEX.neutral;
+}
 
 function toRgba(rgb: number[], alpha = 0.85) {
   return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
@@ -265,7 +265,7 @@ export default function VideoPlayer({
       if (!seenEvents.current.has(ev.id) &&
           ev.timestamp >= t - 0.8 && ev.timestamp <= t + 0.8) {
         seenEvents.current.add(ev.id);
-        setToast(ev.commentary ?? `${ev.type} @ ${fmt(ev.timestamp)}`);
+        setToast(ev.commentary ?? `${ev.type} @ ${formatTime(ev.timestamp)}`);
         if (toastTimer.current) clearTimeout(toastTimer.current);
         toastTimer.current = setTimeout(() => setToast(null), 3500);
         if (ev.commentary) speak(ev.commentary);
@@ -349,7 +349,7 @@ export default function VideoPlayer({
   };
 
   // ── Play highlight (seek + speak commentary) ─────────────────────────────────
-  const playHighlight = (h: VPHighlight) => {
+  const playHighlight = (h: Highlight) => {
     stopSpeaking();
     seekTo(h.startTime);
     vidRef.current?.play();
@@ -361,6 +361,10 @@ export default function VideoPlayer({
 
   const progressPct = duration > 0 ? (current / duration) * 100 : 0;
 
+  // Prevent browser NotSupportedError when a YouTube URL is passed before the mp4 is ready
+  const isYoutube = src.includes("youtube.com") || src.includes("youtu.be");
+  const safeSrc = isYoutube ? undefined : src;
+
   return (
     <div
       ref={wrapRef}
@@ -371,7 +375,7 @@ export default function VideoPlayer({
       <div className="relative group bg-black">
         <video
           ref={vidRef}
-          src={src}
+          src={safeSrc}
           crossOrigin="anonymous"
           className="w-full aspect-video cursor-pointer"
           onClick={togglePlay}
@@ -471,11 +475,11 @@ export default function VideoPlayer({
           {/* Event markers */}
           {duration > 0 && events.map((ev) => {
             const pct = (ev.timestamp / duration) * 100;
-            const col = EVT_COLORS[ev.type] ?? "#71717a";
+            const col = getEventColor(ev.type);
             return (
               <button
                 key={ev.id}
-                title={`${ev.type} ${fmt(ev.timestamp)} — score ${ev.finalScore.toFixed(1)}`}
+                title={`${ev.type} ${formatTime(ev.timestamp)} — score ${ev.finalScore.toFixed(1)}`}
                 onClick={(e) => { e.stopPropagation(); seekTo(ev.timestamp); }}
                 className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-20
                            w-2 h-2 rounded-full border border-black hover:scale-150 transition-transform"
@@ -531,7 +535,7 @@ export default function VideoPlayer({
 
           {/* Time display */}
           <span className="text-xs font-mono text-zinc-400 whitespace-nowrap">
-            {fmt(current)} / {fmt(duration)}
+            {formatTime(current)} / {formatTime(duration)}
           </span>
 
           <div className="flex-1" />
@@ -605,7 +609,7 @@ export default function VideoPlayer({
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
             {highlights.map((h, i) => {
-              const col = EVT_COLORS[h.eventType ?? ""] ?? "#71717a";
+              const col = getEventColor(h.eventType ?? "");
               return (
                 <button
                   key={h.id}
@@ -625,7 +629,7 @@ export default function VideoPlayer({
                     </span>
                   </div>
                   <span className="font-mono text-[10px] text-zinc-500">
-                    {fmt(h.startTime)} – {fmt(h.endTime)}
+                    {formatTime(h.startTime)} – {formatTime(h.endTime)}
                   </span>
                   <div className="flex items-center gap-1 mt-0.5">
                     <Play className="w-2.5 h-2.5 text-emerald-400" />

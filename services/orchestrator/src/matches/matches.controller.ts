@@ -9,7 +9,11 @@ import {
   UploadedFile,
   NotFoundException,
   BadRequestException,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { diskStorage } from 'multer';
@@ -23,6 +27,7 @@ export class MatchesController {
   constructor(private readonly matchesService: MatchesService) {}
 
   // Stricter rate limit on upload — 5 uploads per minute to protect disk + inference queue
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('upload')
   @UseInterceptors(
@@ -39,19 +44,40 @@ export class MatchesController {
       },
     }),
   )
-  async uploadFile(@UploadedFile() file: Express.Multer.File): Promise<Match> {
+  async uploadFile(@UploadedFile() file: Express.Multer.File, @Req() req: any): Promise<Match> {
     if (!file) throw new BadRequestException('No file provided');
-    return this.matchesService.create(file);
+    return this.matchesService.create(file, req.user.userId);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Post('youtube')
+  async uploadYoutube(@Body() body: { url: string }, @Req() req: any): Promise<Match> {
+    if (!body || !body.url) {
+      throw new BadRequestException('YouTube URL is required');
+    }
+    try {
+      // Basic validation for youtube/youtu.be domains
+      const url = new URL(body.url);
+      if (!url.hostname.includes('youtube.com') && !url.hostname.includes('youtu.be')) {
+        throw new BadRequestException('Invalid YouTube URL');
+      }
+    } catch {
+      throw new BadRequestException('Invalid URL format');
+    }
+    return this.matchesService.createFromYoutube(body.url, req.user.userId);
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async findAll(): Promise<Match[]> {
-    return this.matchesService.findAll();
+  async findAll(@Req() req: any): Promise<Match[]> {
+    return this.matchesService.findAll(req.user?.userId);
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Match> {
-    const match = await this.matchesService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req: any): Promise<Match> {
+    const match = await this.matchesService.findOne(id, req.user?.userId);
     if (!match) throw new NotFoundException(`Match ${id} not found`);
     return match;
   }
@@ -78,15 +104,17 @@ export class MatchesController {
     return this.matchesService.completeMatch(id, body as any);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post(':id/reanalyze')
-  async reanalyzeMatch(@Param('id') id: string): Promise<{ ok: boolean }> {
-    const result = await this.matchesService.reanalyzeMatch(id);
+  async reanalyzeMatch(@Param('id') id: string, @Req() req: any): Promise<{ ok: boolean }> {
+    const result = await this.matchesService.reanalyzeMatch(id, req.user.userId);
     if (!result.ok) throw new NotFoundException(`Match ${id} not found`);
     return result;
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  async deleteMatch(@Param('id') id: string): Promise<{ ok: boolean }> {
-    return this.matchesService.deleteMatch(id);
+  async deleteMatch(@Param('id') id: string, @Req() req: any): Promise<{ ok: boolean }> {
+    return this.matchesService.deleteMatch(id, req.user.userId);
   }
 }

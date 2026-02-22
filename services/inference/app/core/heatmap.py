@@ -30,6 +30,26 @@ TEAM_COLORS_BGR = {
 # 1 pixel ≈ 0.13 m at 800px wide (105/800)
 PIXELS_PER_METRE = 800 / 105.0   # ~7.6 px/m
 
+# Approximate broadcast pitch polygon (normalized coords)
+SRC_POLY_NORM = np.array([
+    [0.10, 0.35],  # top-left
+    [0.90, 0.35],  # top-right
+    [1.00, 0.95],  # bottom-right
+    [0.00, 0.95]   # bottom-left
+], dtype=np.float32)
+
+# Top-down pitch rectangle corners
+DST_POLY = np.array([
+    [0, 0],
+    [PITCH_W, 0],
+    [PITCH_W, PITCH_H],
+    [0, PITCH_H]
+], dtype=np.float32)
+
+# Calculate fixed Homography matrix
+H_SRC = SRC_POLY_NORM.copy()
+H_MATRIX, _ = cv2.findHomography(H_SRC, DST_POLY)
+
 
 def generate_heatmap(track_frames: list, output_path: str,
                      team_colors_rgb: list | None = None) -> bool:
@@ -61,9 +81,15 @@ def generate_heatmap(track_frames: list, output_path: str,
             nx, ny, nw, nh = float(p[0]), float(p[1]), float(p[2]), float(p[3])
             team = int(p[5]) if len(p) > 5 else 0
 
-            # Centroid of bounding box
-            cx = int((nx + nw / 2) * PITCH_W)
-            cy = int((ny + nh / 2) * PITCH_H)
+            # Use bottom-center of bounding box for ground position
+            px = nx + nw / 2
+            py = ny + nh
+            
+            # Map using homography
+            pt = np.array([[[px, py]]], dtype=np.float32)
+            td = cv2.perspectiveTransform(pt, H_MATRIX)[0][0]
+            cx, cy = int(td[0]), int(td[1])
+            
             cx = max(0, min(PITCH_W - 1, cx))
             cy = max(0, min(PITCH_H - 1, cy))
 
@@ -76,8 +102,11 @@ def generate_heatmap(track_frames: list, output_path: str,
             if len(b) < 4:
                 continue
             nx, ny, nw, nh = float(b[0]), float(b[1]), float(b[2]), float(b[3])
-            cx = int((nx + nw / 2) * PITCH_W)
-            cy = int((ny + nh / 2) * PITCH_H)
+            px = nx + nw / 2
+            py = ny + nh / 2
+            pt = np.array([[[px, py]]], dtype=np.float32)
+            td = cv2.perspectiveTransform(pt, H_MATRIX)[0][0]
+            cx, cy = int(td[0]), int(td[1])
             cx = max(0, min(PITCH_W - 1, cx))
             cy = max(0, min(PITCH_H - 1, cy))
             ball_positions.append((cx, cy))

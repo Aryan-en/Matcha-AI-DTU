@@ -5,30 +5,21 @@ import Link from "next/link";
 import { CheckCircle2, Loader2, Upload, XCircle, LayoutGrid, Clock, AlertTriangle } from "lucide-react";
 import { useMatches } from "@/hooks/useMatches";
 import { motion, AnimatePresence } from "framer-motion";
+import { STATUS_CONFIG as SHARED_STATUS_CONFIG, formatTime, timeAgo } from "@matcha/shared";
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  COMPLETED:  { label: "Completed",  color: "text-emerald-400 bg-emerald-500/15 border-emerald-500/40", icon: <CheckCircle2 className="w-3 h-3" /> },
-  PROCESSING: { label: "Processing", color: "text-blue-400 bg-blue-500/15 border-blue-500/40",         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-  UPLOADED:   { label: "Queued",     color: "text-amber-400 bg-amber-500/15 border-amber-500/40",      icon: <Upload className="w-3 h-3" /> },
-  FAILED:     { label: "Failed",     color: "text-red-400 bg-red-500/15 border-red-500/40",            icon: <XCircle className="w-3 h-3" /> },
+const THEME_MAP: Record<string, { color: string }> = {
+  success: { color: "text-emerald-400 bg-emerald-500/15 border-emerald-500/40" },
+  info:    { color: "text-blue-400 bg-blue-500/15 border-blue-500/40"       },
+  warning: { color: "text-amber-400 bg-amber-500/15 border-amber-500/40"    },
+  error:   { color: "text-red-400 bg-red-500/15 border-red-500/40"          },
 };
 
-function formatDuration(secs: number | null) {
-  if (!secs) return "—";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  COMPLETED:  { ...SHARED_STATUS_CONFIG.COMPLETED,  ...THEME_MAP[SHARED_STATUS_CONFIG.COMPLETED.theme],  icon: <CheckCircle2 className="w-3 h-3" /> },
+  PROCESSING: { ...SHARED_STATUS_CONFIG.PROCESSING, ...THEME_MAP[SHARED_STATUS_CONFIG.PROCESSING.theme], icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+  UPLOADED:   { ...SHARED_STATUS_CONFIG.UPLOADED,   ...THEME_MAP[SHARED_STATUS_CONFIG.UPLOADED.theme],   icon: <Upload className="w-3 h-3" /> },
+  FAILED:     { ...SHARED_STATUS_CONFIG.FAILED,     ...THEME_MAP[SHARED_STATUS_CONFIG.FAILED.theme],     icon: <XCircle className="w-3 h-3" /> },
+};
 
 const FILTER_OPTIONS = ["ALL", "COMPLETED", "PROCESSING", "UPLOADED", "FAILED"] as const;
 type FilterOption = typeof FILTER_OPTIONS[number];
@@ -189,7 +180,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                       {m.duration != null && m.duration > 0 && (
                         <div className="flex flex-col items-start md:items-end">
                           <span className="font-mono text-[8px] text-muted-foreground uppercase tracking-widest mb-0.5 sm:mb-1">RUNTIME</span>
-                          <span className="font-mono text-xs sm:text-sm text-foreground/90">{formatDuration(m.duration ?? 0)}</span>
+                          <span className="font-mono text-xs sm:text-sm text-foreground/90">{formatTime(m.duration ?? 0)}</span>
                         </div>
                       )}
 

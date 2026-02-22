@@ -6,13 +6,14 @@ import { useDropzone } from "react-dropzone";
 import { Upload, FileVideo, X, CheckCircle2, AlertCircle, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { io, Socket } from "socket.io-client";
-import { createApiClient } from "@matcha/shared";
+import { createApiClient, WsEvents, isYoutubeUrl, extractYoutubeId } from "@matcha/shared";
 
 const api = createApiClient("http://localhost:4000/api/v1");
 
 export const VideoUpload = React.memo(function VideoUploadContent() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingProgress, setProcessingProgress] = useState(0);
@@ -31,9 +32,9 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
 
   useEffect(() => {
     if (socket && matchId) {
-      socket.emit("joinMatch", matchId);
+      socket.emit(WsEvents.JOIN_MATCH, matchId);
 
-      socket.on("progress", (data: { progress: number }) => {
+      socket.on(WsEvents.PROGRESS, (data: { progress: number }) => {
         if (data.progress === -1) {
           setStatus("error");
           return;
@@ -45,7 +46,7 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
         }
       });
 
-      socket.on("complete", () => {
+      socket.on(WsEvents.COMPLETE, () => {
         setProcessingProgress(100);
         setStatus("success");
         // Auto-navigate to match detail after a short pause
@@ -114,6 +115,26 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
     }
   };
 
+  const uploadYoutube = async () => {
+    if (!youtubeUrl) return;
+
+    setUploading(true);
+    setStatus("uploading");
+    setUploadProgress(100); // No real upload progress for URL submission
+
+    try {
+      const data = await api.uploadYoutube(youtubeUrl);
+      setMatchId(data.id);
+      setStatus("processing");
+    } catch (error) {
+      console.error(error);
+      setStatus("error");
+      setUploadProgress(0);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const removeFile = (e: React.MouseEvent) => {
     e.stopPropagation();
     setFile(null);
@@ -123,11 +144,37 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full flex flex-col gap-6">
+      {/* YouTube URL Input Area */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="PASTE YOUTUBE URL HERE..."
+          value={youtubeUrl}
+          onChange={(e) => setYoutubeUrl(e.target.value)}
+          disabled={status !== "idle" || file !== null}
+          className="flex-1 bg-background border border-border px-4 py-3 font-mono text-[11px] uppercase tracking-widest text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+        />
+        <button
+          onClick={uploadYoutube}
+          disabled={!isYoutubeUrl(youtubeUrl) || status !== "idle" || file !== null || uploading}
+          className="font-mono text-[10px] uppercase tracking-widest px-6 py-3 transition-colors duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          ANALYSE URL
+        </button>
+      </div>
+
+      <div className="flex items-center gap-4">
+        <div className="flex-1 h-px bg-border/50" />
+        <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-widest">OR</span>
+        <div className="flex-1 h-px bg-border/50" />
+      </div>
+
       <div
         {...getRootProps()}
         className={[
-          "drop-zone bracket relative p-10 transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          "drop-zone bracket relative p-10 transition-colors duration-200  focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          status !== "idle" || !!youtubeUrl ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
           isDragActive ? "active" : "",
           file ? "has-file" : "",
         ].join(" ")}

@@ -4,19 +4,36 @@
 
 import type { MatchSummary, MatchDetail } from "./types";
 
+const getAuthHeaders = (): Record<string, string> => {
+  if (typeof window === 'undefined') return {};
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 export function createApiClient(baseUrl: string) {
+  // Strip trailing slash if present for consistent concatenation
+  const cleanBase = baseUrl.replace(/\/$/, "");
+  const apiBase = `${cleanBase}/api/v1`;
+
   return {
+    /** Helper to resolve relative asset paths (e.g. /uploads/...) to full URLs */
+    getAssetUrl: (path: string | null): string => {
+      if (!path) return "";
+      if (path.startsWith("http")) return path;
+      return `${cleanBase}${path}`;
+    },
+
     getMatches: (): Promise<MatchSummary[]> =>
-      fetch(`${baseUrl}/matches`).then((r) => r.json()),
+      fetch(`${apiBase}/matches`, { headers: getAuthHeaders() }).then((r) => r.json()),
 
     getMatch: (id: string): Promise<MatchDetail> =>
-      fetch(`${baseUrl}/matches/${id}`).then((r) => r.json()),
+      fetch(`${apiBase}/matches/${id}`, { headers: getAuthHeaders() }).then((r) => r.json()),
 
     deleteMatch: (id: string): Promise<Response> =>
-      fetch(`${baseUrl}/matches/${id}`, { method: "DELETE" }),
+      fetch(`${apiBase}/matches/${id}`, { method: "DELETE", headers: getAuthHeaders() }),
 
     reanalyze: (id: string): Promise<Response> =>
-      fetch(`${baseUrl}/matches/${id}/reanalyze`, { method: "POST" }),
+      fetch(`${apiBase}/matches/${id}/reanalyze`, { method: "POST", headers: getAuthHeaders() }),
 
     uploadVideo: (file: File | Blob, onProgress?: (pct: number) => void): Promise<MatchSummary> =>
       new Promise((resolve, reject) => {
@@ -31,8 +48,56 @@ export function createApiClient(baseUrl: string) {
           else reject(new Error(`Upload failed: ${xhr.status}`));
         };
         xhr.onerror = () => reject(new Error("Network error"));
-        xhr.open("POST", `${baseUrl}/matches/upload`);
+        xhr.open("POST", `${apiBase}/matches/upload`);
+        const authHeaders = getAuthHeaders();
+        if (authHeaders.Authorization) {
+          xhr.setRequestHeader("Authorization", authHeaders.Authorization);
+        }
         xhr.send(form);
+      }),
+
+    uploadYoutube: (url: string): Promise<MatchSummary> =>
+      fetch(`${apiBase}/matches/youtube`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ url }),
+      }).then((r) => {
+        if (!r.ok) throw new Error(`YouTube upload failed: ${r.statusText}`);
+        return r.json();
+      }),
+
+    login: (body: any): Promise<{ access_token: string; user: any }> =>
+      fetch(`${cleanBase}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      }),
+
+    register: (body: any): Promise<{ access_token: string; user: any }> =>
+      fetch(`${cleanBase}/api/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      }),
+      
+    getMe: (): Promise<any> =>
+      fetch(`${apiBase}/auth/me`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      }).then(async (r) => {
+        if (!r.ok) {
+          if (r.status === 401 && typeof window !== 'undefined') {
+            localStorage.removeItem('auth_token');
+          }
+          throw new Error("Unauthorized");
+        }
+        return r.json();
       }),
   };
 }

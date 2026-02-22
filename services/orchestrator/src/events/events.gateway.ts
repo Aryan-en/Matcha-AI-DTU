@@ -6,6 +6,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { WsEvents } from '@matcha/shared';
 
 @WebSocketGateway({
   cors: {
@@ -16,7 +17,7 @@ export class EventsGateway {
   @WebSocketServer()
   server: Server;
 
-  @SubscribeMessage('joinMatch')
+  @SubscribeMessage(WsEvents.JOIN_MATCH)
   handleJoinMatch(
     @MessageBody() matchId: string,
     @ConnectedSocket() client: Socket,

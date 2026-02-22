@@ -311,40 +311,53 @@ def detect_events_from_features(
         
         # Check for sustained high activity after peak (celebration pattern)
         post_peak = feature_diffs[peak_idx:min(peak_idx + int(sample_fps * 8), len(feature_diffs))]
-        sustained_activity = np.mean(post_peak) if len(post_peak) > 0 else 0
+        sustained_activity = float(np.mean(post_peak)) if len(post_peak) > 0 else 0.0
         
-        # Check for buildup before peak
+        # Check for buildup before peak (tension before set-piece)
         pre_peak = feature_diffs[max(0, peak_idx - int(sample_fps * 3)):peak_idx]
-        buildup = np.mean(pre_peak) if len(pre_peak) > 0 else 0
-        
-        # Classify based on patterns
-        event_type = "HIGHLIGHT"  # Default
+        buildup = float(np.mean(pre_peak)) if len(pre_peak) > 0 else 0.0
+
+        # Check sharpness (is it a sudden spike or a gradual swell?)
+        local_avg = float(np.mean(feature_diffs[start_idx:end_idx]))
+        sharpness = float(peak_magnitude) / (local_avg + 1e-5)
+
+        # Time weight (late game = higher tension)
+        time_weight = 1.0
+        if duration > 0 and timestamp / duration > 0.8:
+            time_weight = 1.2
+
+        # 5-Signal Fusion Scoring
+        event_type = "HIGHLIGHT"
         confidence = float(peak_magnitude)
         
-        # Goal pattern: high peak + sustained activity (celebration)
-        if peak_magnitude > 0.6 and sustained_activity > 0.4:
+        # Goal: high peak + very high sustained activity (celebration)
+        score_goal = peak_magnitude * 0.4 + sustained_activity * 0.6
+        if score_goal > 0.45:
             event_type = "GOAL"
-            confidence = min(0.9, peak_magnitude * 1.2)
+            confidence = min(0.95, score_goal * 1.5 * time_weight)
             
-        # Foul/Card pattern: sudden peak with quick drop
-        elif peak_magnitude > 0.5 and sustained_activity < 0.25:
+        # Foul/Card: sudden sharp peak with no sustained activity (game stops)
+        elif sharpness > 3.0 and sustained_activity < 0.2:
             event_type = "FOUL"
-            confidence = min(0.8, peak_magnitude)
-            
-        # Save pattern: high peak in specific field position (can't detect without position)
-        # Use moderate peak with quick recovery
-        elif 0.4 < peak_magnitude < 0.65 and buildup > 0.3:
+            confidence = min(0.85, peak_magnitude * 1.2 * (sharpness / 4.0))
+            if peak_magnitude > 0.6:
+                event_type = "YELLOW_CARD" # Escalation
+                
+        # Save: sharp peak + immediate recovery (play continues)
+        elif sharpness > 2.5 and 0.2 < sustained_activity < 0.4:
             event_type = "SAVE"
-            confidence = min(0.7, peak_magnitude * 0.9)
+            confidence = min(0.8, peak_magnitude * 1.1)
             
-        # Corner/Set piece: moderate activity spike
-        elif 0.35 < peak_magnitude < 0.5:
-            if timestamp / duration > 0.8:  # Late game
-                event_type = "CORNER"
-            else:
-                event_type = "TACKLE"
-            confidence = min(0.65, peak_magnitude * 0.8)
+        # Corner/Freekick: high buildup (setup time) followed by a peak
+        elif buildup > 0.3 and peak_magnitude > 0.3:
+            event_type = "CORNER" if time_weight > 1.0 else "FOUL"
+            confidence = min(0.75, (buildup + peak_magnitude) * 0.8)
             
+        # Tackle: generic moderate sharp peak
+        elif sharpness > 2.0:
+            event_type = "TACKLE"
+            confidence = min(0.7, peak_magnitude)
+
         # Apply minimum confidence threshold
         min_conf = MIN_CONFIDENCE.get(event_type, 0.4)
         if confidence < min_conf:

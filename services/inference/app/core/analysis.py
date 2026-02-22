@@ -96,6 +96,16 @@ except ImportError as e:
     SOCCERNET_AVAILABLE = False
     detect_football_events = None
 
+# ── CV Physics (YOLO-based heuristics) ───────────────────────────────────────
+try:
+    from app.core.cv_detector import detect_all as detect_cv_physics
+    CV_PHYSICS_AVAILABLE = True
+    logger.info("CV Physics detector loaded ✓")
+except ImportError as e:
+    logger.warning(f"CV Physics detector not available: {e}")
+    CV_PHYSICS_AVAILABLE = False
+    detect_cv_physics = None
+
 # ── YOLO ─────────────────────────────────────────────────────────────────────
 try:
     from ultralytics import YOLO
@@ -140,8 +150,8 @@ def _get_gemini():
         try:
             import google.generativeai as genai
             genai.configure(api_key=GEMINI_API_KEY)
-            _gemini_model = genai.GenerativeModel("gemini-2.0-flash")
-            logger.info("Gemini 2.0 Flash loaded ✓")
+            _gemini_model = genai.GenerativeModel("gemini-2.5-flash")
+            logger.info("Gemini 2.5 Flash loaded ✓")
         except Exception as e:
             logger.warning(f"Gemini unavailable: {e}")
             _gemini_model = False
@@ -159,7 +169,7 @@ def _get_gemini_vision():
         try:
             import google.generativeai as genai
             genai.configure(api_key=GEMINI_API_KEY)
-            _gemini_vision_model = genai.GenerativeModel("gemini-2.0-flash")
+            _gemini_vision_model = genai.GenerativeModel("gemini-2.5-flash")
             logger.info("Gemini Vision loaded ✓")
         except Exception as e:
             logger.warning(f"Gemini Vision unavailable: {e}")
@@ -669,14 +679,15 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
     if os.path.exists(list_path):
         os.remove(list_path)
         
-    return f"http://localhost:4000/uploads/{reel_filename}"
+    return f"/uploads/{reel_filename}"
 
 
-ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:4000")
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:4000/api/v1")
 
-# Use YOLOv8s (small) instead of nano - better GPU parallelization, faster on RTX GPUs
+# Use YOLOv8s-pose for person keypoints, and tiny model for ball
 # Downloads automatically on first run (~22MB)
-model = YOLO("yolov8s.pt")
+model = YOLO("yolov8s-pose.pt")
+ball_model = YOLO("yolov8n.pt")
 
 # ── COCO classes to track for visualization ──────────────────────────────────
 # NOTE: YOLO is now ONLY used for ball/player tracking visualization on canvas
@@ -1029,6 +1040,86 @@ def _precompress_video(video_path: str, match_id: str) -> str:
         return video_path
 
 
+def _download_youtube_video(url: str, match_id: str) -> str:
+    """Download YouTube video using yt-dlp to UPLOADS_DIR."""
+    import yt_dlp
+    
+    logger.info(f"Downloading YouTube video: {url}")
+    # Force mp4 and limit resolution to 720p or 1080p for speed
+    out_tmpl = str(UPLOADS_DIR / f"{match_id}_yt.%(ext)s")
+    
+    from yt_dlp.utils import download_range_func
+    
+    last_emit_time = 0
+    def progress_hook(d):
+        nonlocal last_emit_time
+        if d['status'] == 'downloading':
+            import time
+            from urllib.parse import urljoin
+            
+            # Throttle to emit at most once per second
+            now = time.time()
+            if now - last_emit_time < 1.0:
+                return
+                
+            last_emit_time = now
+            
+            # Calculate percentage
+            percent = 0.0
+            if 'downloaded_bytes' in d and 'total_bytes' in d:
+                percent = (d['downloaded_bytes'] / d['total_bytes']) * 100
+            elif '_percent_str' in d:
+                try:
+                    percent = float(d['_percent_str'].strip('%'))
+                except:
+                    pass
+            
+            # Map download (0-100%) to overall progress (0-20%)
+            # yt-dlp is the first step, so we allocate the first 20% to it visually
+            overall_progress = min(20, int(percent * 0.2))
+            try:
+                requests.post(
+                    f"{ORCHESTRATOR_URL}/matches/{match_id}/progress", 
+                    json={"progress": overall_progress}, 
+                    timeout=1
+                )
+            except:
+                pass
+
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': out_tmpl,
+        'quiet': False,
+        'no_warnings': True,
+        'merge_output_format': 'mp4',
+        'download_ranges': download_range_func(None, [(0, 1800)]), # Only download first 30 minutes
+        'force_keyframes_at_cuts': True,
+        'progress_hooks': [progress_hook],
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            # Find the actual downloaded filepath (might vary slightly depending on merge)
+            dl_path = ydl.prepare_filename(info)
+            # Ensure it ends with mp4 since we merged it
+            if not dl_path.endswith('.mp4'):
+                dl_path = dl_path.rsplit('.', 1)[0] + '.mp4'
+                
+            if os.path.exists(dl_path):
+                logger.info(f"Downloaded YouTube video to: {dl_path}")
+                return dl_path
+            else:
+                # Fallback if the strict filename wasn't found but a file with the ID was
+                for f in UPLOADS_DIR.glob(f"{match_id}_yt.*"):
+                    return str(f)
+                    
+        raise Exception("Download completed but file not found")
+    except Exception as e:
+        logger.error(f"yt-dlp download failed: {e}")
+        raise ValueError(f"Failed to download YouTube video: {e}")
+
+
 # ── Goal Detection Pipeline ────────────────────────────────────────────────────
 def detect_goals_in_video(video_path: str) -> list:
     """
@@ -1102,16 +1193,28 @@ def detect_goals_in_video(video_path: str) -> list:
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 def analyze_video(video_path: str, match_id: str):
-    if not video_path or not os.path.exists(video_path):
-        logger.error(f"Video file not found: {video_path}")
-        _report_failure(match_id)
-        return {"error": "Video file not found"}
-    
     if not match_id or not isinstance(match_id, str):
         logger.error("Invalid match_id")
         return {"error": "Invalid match_id"}
         
-    logger.info(f"Starting analysis: match={match_id}")
+    logger.info(f"Starting analysis: match={match_id}, source={video_path}")
+    
+    # 1. Download if it's a YouTube URL
+    if video_path.startswith("http://") or video_path.startswith("https://"):
+        try:
+            # Emit progress indicating we are downloading
+            requests.post(f"{ORCHESTRATOR_URL}/matches/{match_id}/progress", json={"progress": 5}, timeout=3)
+            video_path = _download_youtube_video(video_path, match_id)
+        except Exception as e:
+            logger.error(str(e))
+            _report_failure(match_id)
+            return {"error": "Failed to download YouTube video"}
+
+    # 2. Proceed with local file validation
+    if not video_path or not os.path.exists(video_path):
+        logger.error(f"Video file not found: {video_path}")
+        _report_failure(match_id)
+        return {"error": "Video file not found"}
     
     # Pre-compress large videos for faster processing
     original_video_path = video_path
@@ -1236,23 +1339,35 @@ def analyze_video(video_path: str, match_id: str):
 
                 try:
                     results = model(yolo_frame, verbose=False)
+                    ball_results = ball_model(yolo_frame, classes=[32], verbose=False)
                 except Exception as e:
                     logger.warning(f"YOLO inference failed: {e}")
                     results = []
+                    ball_results = []
 
                 # Scale factor for converting YOLO coords back to original frame size
                 scale_factor = frame.shape[0] / yolo_frame.shape[0] if frame.shape[0] != yolo_frame.shape[0] else 1.0
 
-                for r in results:
+                for r in ball_results:
                     if r.boxes is None:
                         continue
                     for box in r.boxes:
+                        conf = float(box.conf[0])
+                        x1, y1, x2, y2 = [v * scale_factor for v in box.xyxy[0].tolist()]
+                        nx, ny = round(x1 / frame_w, 4), round(y1 / frame_h, 4)
+                        nw, nh = round((x2 - x1) / frame_w, 4), round((y2 - y1) / frame_h, 4)
+                        frame_balls.append([nx, ny, nw, nh, round(conf, 3)])
+
+                for r in results:
+                    if r.boxes is None:
+                        continue
+                    for i_box, box in enumerate(r.boxes):
                         cls   = int(box.cls[0])
                         conf  = float(box.conf[0])
                         label = model.names[cls]
 
-                        # Only track sports ball and person for visualization
-                        if label not in YOLO_TRACK_CLASSES:
+                        # Only track person with pose model
+                        if label != "person":
                             continue
 
                         x1, y1, x2, y2 = [v * scale_factor for v in box.xyxy[0].tolist()]
@@ -1267,15 +1382,19 @@ def analyze_video(video_path: str, match_id: str):
                         if hasattr(box, "id") and box.id is not None:
                             tid = int(box.id[0])
 
-                        if label == "sports ball":
-                            frame_balls.append([nx, ny, nw, nh, round(conf, 3)])
-                        elif label == "person":
-                            # Extract jersey colour → stored temporarily as [nx,ny,nw,nh,tid, r,g,b]
-                            # After the loop we replace r,g,b with team index
-                            crop = _crop_jersey(frame, nx, ny, nx + nw, ny + nh)
-                            col  = _dominant_colour(crop) or [128, 128, 128]
-                            jersey_colours.append(col)
-                            frame_persons.append([nx, ny, nw, nh, tid, col[0], col[1], col[2]])
+                        # Extract jersey colour → stored temporarily as [nx,ny,nw,nh,tid, r,g,b]
+                        # After the loop we replace r,g,b with team index
+                        crop = _crop_jersey(frame, nx, ny, nx + nw, ny + nh)
+                        col  = _dominant_colour(crop) or [128, 128, 128]
+                        jersey_colours.append(col)
+                        
+                        kps = []
+                        if hasattr(r, 'keypoints') and r.keypoints is not None and r.keypoints.xyn is not None:
+                            if len(r.keypoints.xyn) > i_box:
+                                kps = [round(float(v), 4) for v in r.keypoints.xyn[i_box].flatten().tolist()]
+                        
+                        p_data = [nx, ny, nw, nh, tid, col[0], col[1], col[2]] + kps
+                        frame_persons.append(p_data)
                         
                         # NOTE: We no longer create events from YOLO detections
                         # Events are now detected using Gemini Vision analysis
@@ -1375,6 +1494,29 @@ def analyze_video(video_path: str, match_id: str):
                     
             except Exception as e:
                 logger.error(f"SoccerNet analysis failed: {e}")
+                
+        # Secondary: CV Physics Detector (Runs directly on YOLO tracking data)
+        if CV_PHYSICS_AVAILABLE and detect_cv_physics:
+            try:
+                logger.info("Running CV Physics analysis on track frames...")
+                cv_events = detect_cv_physics(track_frames, fps=process_fps)
+                
+                if cv_events:
+                    # Merge with existing events (avoiding duplicates within 5s)
+                    existing_times = {ev["timestamp"] for ev in raw_events}
+                    for ev in cv_events:
+                        if not any(abs(ev["timestamp"] - et) < 5.0 for et in existing_times):
+                            raw_events.append({
+                                "timestamp": ev["timestamp"],
+                                "type": ev["type"],
+                                "confidence": ev["confidence"],
+                                "description": f"CV Physics detected {ev['type'].lower()}",
+                                "source": "cv_physics"
+                            })
+                            existing_times.add(ev["timestamp"])
+                    logger.info(f"CV Physics added {len(cv_events)} events")
+            except Exception as e:
+                logger.error(f"CV Physics analysis failed: {e}")
         
         # Fallback: Motion-based highlights if SoccerNet fails or returns too few
         if len(raw_events) < 3:
@@ -1462,7 +1604,7 @@ def analyze_video(video_path: str, match_id: str):
                     team_colors_rgb=team_colors,
                 )
                 if success:
-                    heatmap_url = f"http://localhost:4000/uploads/{heatmap_filename}"
+                    heatmap_url = f"/uploads/{heatmap_filename}"
                     logger.info(f"Heatmap generated: {heatmap_url}")
             except Exception as e:
                 logger.warning(f"Heatmap generation failed: {e}")
@@ -1523,6 +1665,7 @@ def analyze_video(video_path: str, match_id: str):
             "teamColors":    convert_numpy(team_colors),   # [[R,G,B],[R,G,B]] team0 / team1
             "heatmapUrl":    heatmap_url,
             "topSpeedKmh":   round(float(top_speed_kmh), 1),
+            "videoUrl":      f"http://localhost:4000/uploads/{Path(original_video_path).name}",
         }
 
         try:

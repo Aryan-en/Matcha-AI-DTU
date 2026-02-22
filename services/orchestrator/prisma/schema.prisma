@@ -8,35 +8,37 @@ datasource db {
 }
 
 model Match {
-  id            String         @id @default(uuid())
-  uploadUrl     String
-  status        MatchStatus    @default(UPLOADED)
-  progress      Int            @default(0) // Processing progress 0-100
-  duration      Float?         // in seconds (float for precision)
-  summary       String?        // AI-generated match narrative
-  highlightReelUrl String?     // URL to the combined highlight reel
-  trackingData  Json?          // ball + person bounding boxes per sampled frame
-  teamColors    Json?          // [[R,G,B],[R,G,B]] detected jersey colours
-  heatmapUrl    String?        // URL to player density heatmap PNG
-  topSpeedKmh   Float?         // Estimated top ball speed in km/h
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  events        Event[]
-  emotionScores EmotionScore[]
-  highlights    Highlight[]
+  id               String         @id @default(uuid())
+  uploadUrl        String
+  status           MatchStatus    @default(UPLOADED)
+  duration         Float?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  summary          String?
+  trackingData     Json?
+  teamColors       Json?
+  progress         Int            @default(0)
+  highlightReelUrl String?
+  heatmapUrl       String?
+  topSpeedKmh      Float?
+  userId           String?
+  emotionScores    EmotionScore[]
+  events           Event[]
+  highlights       Highlight[]
+  user             User?          @relation(fields: [userId], references: [id])
 }
 
 model Event {
-  id          String    @id @default(uuid())
-  matchId     String
-  match       Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  timestamp   Float     // seconds, precision to 0.01s
-  type        EventType
-  confidence  Float     // 0.0-1.0
-  finalScore  Float     @default(0) // 0-10 scale, see compute_context_score()
-  commentary  String?
-  createdAt   DateTime  @default(now())
-  
+  id         String    @id @default(uuid())
+  matchId    String
+  timestamp  Float
+  type       EventType
+  confidence Float
+  createdAt  DateTime  @default(now())
+  finalScore Float     @default(0)
+  commentary String?
+  match      Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
   @@index([matchId])
   @@index([timestamp])
 }
@@ -44,32 +46,42 @@ model Event {
 model EmotionScore {
   id            String   @id @default(uuid())
   matchId       String
-  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  timestamp     Float    // seconds
-  audioScore    Float    // 0.0-1.0
-  motionScore   Float    // 0.0-1.0
-  contextWeight Float    // 0.0-1.0 time-based weight
-  finalScore    Float    // 0-10 composite score
+  timestamp     Float
+  audioScore    Float
+  motionScore   Float
+  contextWeight Float
+  finalScore    Float
   createdAt     DateTime @default(now())
-  
+  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
   @@index([matchId])
   @@index([timestamp])
 }
 
 model Highlight {
-  id          String   @id @default(uuid())
-  matchId     String
-  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  startTime   Float    // seconds, inclusive
-  endTime     Float    // seconds, exclusive
-  score       Float    // 0-10 highlight significance
-  eventType   String?  // e.g., "GOAL", "SAVE", "TACKLE"
-  commentary  String?  // highlight description
-  videoUrl    String?  // optional URL to highlight clip
-  createdAt   DateTime @default(now())
-  
+  id         String   @id @default(uuid())
+  matchId    String
+  startTime  Float
+  endTime    Float
+  score      Float
+  eventType  String?
+  commentary String?
+  createdAt  DateTime @default(now())
+  videoUrl   String?
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
   @@index([matchId])
   @@index([startTime])
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  matches   Match[]
 }
 
 enum MatchStatus {
@@ -84,8 +96,8 @@ enum EventType {
   FOUL
   TACKLE
   SAVE
-  CELEBRATION    // SoccerNet/Vision AI detected celebration
-  HIGHLIGHT      // Generic fallback highlight from motion analysis
+  CELEBRATION
+  HIGHLIGHT
   PENALTY
   RED_CARD
   YELLOW_CARD

@@ -4,6 +4,7 @@ const path = require('path');
 const nextConfig = {
     transpilePackages: [
         '@matcha/shared',
+        '@react-pdf/renderer',
         'socket.io-client',
         'engine.io-client',
         'engine.io-parser',

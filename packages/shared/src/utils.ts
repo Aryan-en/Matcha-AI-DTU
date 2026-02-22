@@ -38,3 +38,37 @@ export function maxScore(events: MatchEvent[]): number {
   if (!events.length) return 0;
   return Math.max(...events.map((e) => e.finalScore));
 }
+
+/** Format seconds → "m:ss" */
+export function formatTime(secs: number | null): string {
+  if (secs === null || secs === undefined) return "—";
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** Relative time formatter: "5m ago", "just now", etc. */
+export function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+/** Regex for all standard YouTube URL formats */
+export const YOUTUBE_REGEX = /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+
+/** Validate if a string is a valid YouTube URL */
+export function isYoutubeUrl(url: string): boolean {
+  return YOUTUBE_REGEX.test(url);
+}
+
+/** Extract video ID from any YouTube URL */
+export function extractYoutubeId(url: string): string | null {
+  const match = url.match(YOUTUBE_REGEX);
+  return match ? match[1] : null;
+}
