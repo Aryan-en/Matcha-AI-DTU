@@ -18,6 +18,7 @@ async function bootstrap() {
     app.setGlobalPrefix('api/v1');
 
     // CORS — dynamically allow custom arrays or any localhost/127.0.0.1 port.
+    
     const allowedOrigins = CORS_ORIGIN.length > 0
       ? CORS_ORIGIN
       : [/^http:\/\/(localhost|127\.0\.0\.1):\d+$/];
@@ -47,7 +48,6 @@ async function bootstrap() {
     server.setTimeout(REQUEST_TIMEOUT);
 
     console.log(`🚀 Orchestrator running on http://localhost:${PORT}/api/v1`);
-    console.log(`   CORS allowed origins: ${CORS_ORIGIN.join(', ')}`);
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

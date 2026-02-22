@@ -110,7 +110,6 @@ export class MatchesService {
             { timeout: 10000 },
           ) as any,
         );
-        this.logger.log(`Inference triggered successfully for match ${matchId}`);
         return; // Success
       } catch (error) {
         const isLast = attempt === maxAttempts;
@@ -137,7 +136,7 @@ export class MatchesService {
   async findAll(userId?: string) {
     const where = userId 
       ? { OR: [{ userId }, { userId: null }] }
-      : { userId: null };
+      : {};
 
     const matches = await this.prisma.match.findMany({
       where,
@@ -335,7 +334,6 @@ export class MatchesService {
     const fileName = uploadUrlParts[uploadUrlParts.length - 1];
     const videoPath = path.join(uploadsDir, fileName);
 
-    this.logger.log(`Re-analyzing match ${id} from ${videoPath}`);
     this.triggerInference(id, videoPath);
     return { ok: true };
   }

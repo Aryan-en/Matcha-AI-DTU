@@ -10,7 +10,7 @@
         "push": "prisma db push"
     },
     "dependencies": {
-        "@prisma/client": "^5.10.2"
+        "@prisma/client": "^5.22.0"
     },
     "devDependencies": {
         "@matcha/typescript-config": "*",

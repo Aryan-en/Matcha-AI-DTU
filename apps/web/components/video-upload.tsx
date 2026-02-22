@@ -158,9 +158,16 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
         <button
           onClick={uploadYoutube}
           disabled={!isYoutubeUrl(youtubeUrl) || status !== "idle" || file !== null || uploading}
-          className="font-mono text-[10px] uppercase tracking-widest px-6 py-3 transition-colors duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          className="font-mono text-[10px] uppercase tracking-widest px-6 py-3 transition-all duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-2"
         >
-          ANALYSE URL
+          {uploading ? (
+            <>
+              <Loader2 className="size-3 animate-spin" />
+              ANALYSE URL
+            </>
+          ) : (
+            "ANALYSE URL"
+          )}
         </button>
       </div>
 
@@ -230,10 +237,18 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
             <div className="flex gap-2">
               <button
                 onClick={(e) => { e.stopPropagation(); uploadFile(); }}
-                className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-colors duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium"
+                disabled={uploading}
+                className="font-mono text-[10px] uppercase tracking-widest px-7 py-2.5 transition-all duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium flex items-center gap-2"
                 aria-label="Analyze Match"
               >
-                ▸ ANALYSE MATCH
+                {uploading ? (
+                  <>
+                    <Loader2 className="size-3 animate-spin" />
+                    ANALYSING...
+                  </>
+                ) : (
+                  "▸ ANALYSE MATCH"
+                )}
               </button>
               <button
                 onClick={removeFile}

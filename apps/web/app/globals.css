@@ -6,7 +6,8 @@
    Palette: Navy-black · Broadcast amber · Electric status accents
    ========================================================== */
 
-@theme inline {
+/* Tailwind CSS v4 @theme directive */
+@theme {
   --color-background: oklch(14.5% 0.025 264);
   /* #07080F (Close approximation) */
   --color-foreground: oklch(92% 0.01 264);

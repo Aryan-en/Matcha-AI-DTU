@@ -22,9 +22,9 @@ export function useMatches(baseUrl: string = "http://localhost:4000") {
         }
       });
       setProgressMap((prev: ProgressMap) => ({ ...initialProgress, ...prev }));
-    } catch { 
-      console.warn("Match Orchestrator offline"); 
-    } finally { 
+    } catch {
+      // API Offline
+    } finally {
       setLoading(false); 
     }
   }, [client]);
@@ -50,7 +50,7 @@ export function useMatches(baseUrl: string = "http://localhost:4000") {
   }, [baseUrl, fetchMatches]);
 
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socketRef.current || !Array.isArray(matches)) return;
     const processingMatches = matches.filter(m => m.status === "PROCESSING" || m.status === "UPLOADED");
     processingMatches.forEach(m => {
       socketRef.current?.emit("joinMatch", m.id);
@@ -73,5 +73,15 @@ export function useMatches(baseUrl: string = "http://localhost:4000") {
     }
   };
 
-  return { matches, loading, progressMap, deleteMatch, refetch: fetchMatches };
+  const reanalyzeMatch = async (id: string) => {
+    try {
+      await client.reanalyze(id);
+      await fetchMatches();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  return { matches, loading, progressMap, deleteMatch, reanalyzeMatch, refetch: fetchMatches };
 }

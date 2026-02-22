@@ -1,17 +1,18 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from "@matcha/database";
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   private prisma: PrismaClient;
 
-  constructor() {
+  constructor(configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'matcha-super-secret-key-change-me',
+      secretOrKey: configService.get<string>('JWT_SECRET') || 'matcha-super-secret-key-change-me',
     });
     this.prisma = new PrismaClient();
   }
@@ -25,7 +26,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException();
     }
 
-    // Expose the raw user ID and email to the request object
     return { userId: payload.sub, email: payload.email };
   }
 }

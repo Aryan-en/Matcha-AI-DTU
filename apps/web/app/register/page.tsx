@@ -25,12 +25,24 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const response = await api.register({ name, email, password });
+      // Split name into firstName and lastName
+      const nameParts = name.trim().split(/\s+/);
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || nameParts[0] || "User";
+      
+      const response = await api.register({ email, password, firstName, lastName });
       login(response.access_token, response.user);
     } catch (err: any) {
       let msg = err.message;
-      try { const parsed = JSON.parse(msg); if(parsed.message) msg = parsed.message; } catch(e){}
-      // API may return an array of error messages from validation pipeline
+      try { 
+        const parsed = JSON.parse(msg); 
+        if (parsed.errors && Array.isArray(parsed.errors)) {
+          msg = parsed.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(", ");
+        } else if (parsed.message) {
+          msg = parsed.message;
+        }
+      } catch (e) {}
+      
       if (Array.isArray(msg)) msg = msg.join(", ");
       setError(msg || "Failed to register account.");
     } finally {

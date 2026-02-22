@@ -25,9 +25,10 @@ const FILTER_OPTIONS = ["ALL", "COMPLETED", "PROCESSING", "UPLOADED", "FAILED"] 
 type FilterOption = typeof FILTER_OPTIONS[number];
 
 export const MatchDashboard = React.memo(function MatchDashboardContent() {
-  const { matches, loading, progressMap, deleteMatch } = useMatches();
+  const { matches, loading, progressMap, deleteMatch, reanalyzeMatch } = useMatches();
   const [filter, setFilter] = useState<FilterOption>("ALL");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const handleDelete = useCallback(async (id: string) => {
@@ -38,12 +39,14 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
   }, [deleteMatch]);
 
   const handleReanalyze = useCallback(async (id: string) => {
-    // In a real app, this would call an API endpoint like POST /matches/:id/reanalyze
-    // For now, we'll simulate it by logging
-    console.log("Reanalyzing match:", id);
-  }, []);
+    setReanalyzingId(id);
+    await reanalyzeMatch(id);
+    setReanalyzingId(null);
+  }, [reanalyzeMatch]);
 
-  const visible = filter === "ALL" ? matches : matches.filter((m) => m.status === filter);
+  const visible = Array.isArray(matches) 
+    ? (filter === "ALL" ? matches : matches.filter((m) => m.status === filter))
+    : [];
 
   if (loading) {
     return (
@@ -208,11 +211,25 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                       href={`/matches/${m.id}`}
                       className="w-[80px] sm:w-[100px] lg:w-[120px] h-full shrink-0 relative overflow-hidden group/thumb border-r border-white/10 bg-black/40"
                     >
-                      {m.thumbnailUrl || m.heatmapUrl ? (
+                      {m.thumbnailUrl ? (
                         <img 
-                          src={m.thumbnailUrl || m.heatmapUrl || ""} 
+                          src={
+                            m.thumbnailUrl.startsWith("http")
+                              ? m.thumbnailUrl
+                              : `http://localhost:4000${m.thumbnailUrl}`
+                          } 
                           alt="Preview" 
                           className="w-full h-full object-cover opacity-60 group-hover/thumb:opacity-100 transition-all duration-700 scale-110 group-hover/thumb:scale-100 saturate-50 group-hover/thumb:saturate-100" 
+                        />
+                      ) : m.heatmapUrl ? (
+                        <img 
+                          src={
+                            m.heatmapUrl.startsWith("http")
+                              ? m.heatmapUrl
+                              : `http://localhost:4000${m.heatmapUrl}`
+                          } 
+                          alt="Analysis Feed" 
+                          className="w-full h-full object-contain opacity-40 group-hover/thumb:opacity-70 transition-all duration-700 p-2" 
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-muted/10">
@@ -288,12 +305,17 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                         {!isConfirming ? (
                           <div className="flex items-center gap-3 lg:gap-2">
                             <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleReanalyze(m.id); }}
-                              className="flex items-center justify-center size-9 lg:size-8 bg-white/5 hover:bg-accent/10 text-muted-foreground hover:text-accent border border-white/5 hover:border-accent/30 transition-all rounded-full"
-                              title="Reanalyze"
-                            >
-                              <RefreshCw className="size-4 lg:size-3.5" />
-                            </button>
+                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleReanalyze(m.id); }}
+                               disabled={reanalyzingId === m.id || m.status === "PROCESSING"}
+                               className={`flex items-center justify-center size-9 lg:size-8 bg-white/5 border border-white/5 transition-all rounded-full ${
+                                 reanalyzingId === m.id || m.status === "PROCESSING"
+                                   ? "text-accent border-accent/30 cursor-wait" 
+                                   : "hover:bg-accent/10 text-muted-foreground hover:text-accent hover:border-accent/30"
+                               }`}
+                               title={m.status === "PROCESSING" ? "Analysis in progress" : "Reanalyze"}
+                             >
+                               <RefreshCw className={`size-4 lg:size-3.5 ${(reanalyzingId === m.id || m.status === "PROCESSING") ? "animate-spin" : ""}`} />
+                             </button>
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmId(m.id); }}
                               className="flex items-center justify-center size-9 lg:size-8 bg-white/5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive border border-white/5 hover:border-destructive/30 transition-all rounded-full"
@@ -305,11 +327,18 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                         ) : (
                           <div className="flex items-center bg-card shadow-2xl scale-95 lg:scale-90 border border-destructive/20 overflow-hidden">
                             <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(m.id); }}
-                              disabled={isDeleting}
-                              className="font-mono px-4 lg:px-3 py-2.5 lg:py-2 text-[9px] lg:text-[8px] bg-destructive text-white uppercase tracking-widest font-bold hover:brightness-110"
+                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(m.id); }}
+                               disabled={isDeleting}
+                               className="font-mono px-4 lg:px-3 py-2.5 lg:py-2 text-[9px] lg:text-[8px] bg-destructive text-white uppercase tracking-widest font-bold hover:brightness-110 flex items-center justify-center gap-1"
                             >
-                              {isDeleting ? "..." : "DEL"}
+                              {isDeleting ? (
+                                <>
+                                  <Loader2 className="size-2.5 animate-spin" />
+                                  ...
+                                </>
+                              ) : (
+                                "DEL"
+                              )}
                             </button>
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmId(null); }}

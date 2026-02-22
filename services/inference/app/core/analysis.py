@@ -1654,28 +1654,42 @@ def analyze_video(video_path: str, match_id: str):
                 return [convert_numpy(i) for i in obj]
             return obj
 
-        # ── Midpoint Thumbnail Generation ─────────────────────────────────────
+        # ── Thumbnail Generation ─────────────────────────────────────────────
         thumbnail_url = None
         try:
-            midpoint_frame_idx = total_frames // 2
             cap_thumb = cv2.VideoCapture(original_video_path)
-            cap_thumb.set(cv2.CAP_PROP_POS_FRAMES, midpoint_frame_idx)
-            ret_t, thumb_frame = cap_thumb.read()
-            if ret_t:
-                # Resize to standard 720p width if larger, maintain aspect ratio
-                th, tw = thumb_frame.shape[:2]
-                if tw > 1280:
-                    t_scale = 1280 / tw
-                    thumb_frame = cv2.resize(thumb_frame, (1280, int(th * t_scale)))
+            if not cap_thumb.isOpened():
+                logger.error(f"Failed to open video for thumbnail: {original_video_path}")
+            else:
+                midpoint_frame_idx = total_frames // 2
+                cap_thumb.set(cv2.CAP_PROP_POS_FRAMES, midpoint_frame_idx)
+                ret_t, thumb_frame = cap_thumb.read()
                 
-                thumbnail_filename = f"thumbnail_{match_id}.jpg"
-                thumbnail_path = str(UPLOADS_DIR / thumbnail_filename)
-                cv2.imwrite(thumbnail_path, thumb_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-                thumbnail_url = f"/uploads/{thumbnail_filename}"
-                logger.info(f"Midpoint thumbnail generated: {thumbnail_url}")
+                # Fallback to first frame if midpoint fails
+                if not ret_t:
+                    logger.warning("Midpoint frame read failed, falling back to first frame")
+                    cap_thumb.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret_t, thumb_frame = cap_thumb.read()
+                
+                if ret_t:
+                    # Resize to standard 720p width if larger, maintain aspect ratio
+                    th, tw = thumb_frame.shape[:2]
+                    if tw > 1280:
+                        t_scale = 1280 / tw
+                        thumb_frame = cv2.resize(thumb_frame, (1280, int(th * t_scale)))
+                    
+                    thumbnail_filename = f"thumbnail_{match_id}.jpg"
+                    thumbnail_path = str(UPLOADS_DIR / thumbnail_filename)
+                    success = cv2.imwrite(thumbnail_path, thumb_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                    if success:
+                        thumbnail_url = f"/uploads/{thumbnail_filename}"
+                    else:
+                        logger.error(f"cv2.imwrite failed for {thumbnail_path}")
+                else:
+                    logger.error("Failed to read any frames for thumbnail")
             cap_thumb.release()
         except Exception as te:
-            logger.warning(f"Thumbnail generation failed: {te}")
+            logger.warning(f"Thumbnail generation system error: {te}")
 
         payload = {
             "events":        convert_numpy(scored_events),

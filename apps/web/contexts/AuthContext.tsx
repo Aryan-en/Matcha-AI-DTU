@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userData = await api.getMe();
         setUser(userData);
       } catch (error) {
-        console.error("Token invalid or expired", error);
+        // Token invalid or expired - silently clear it
         localStorage.removeItem("auth_token");
         setUser(null);
       } finally {
@@ -62,7 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = (token: string, userData: User) => {
     localStorage.setItem("auth_token", token);
     setUser(userData);
-    router.push("/");
+    // Small delay to ensure localStorage is written before redirect
+    setTimeout(() => router.push("/"), 100);
   };
 
   const logout = () => {
