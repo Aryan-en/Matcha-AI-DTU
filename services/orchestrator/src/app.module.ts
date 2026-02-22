@@ -24,6 +24,8 @@ import { AuthModule } from './auth/auth.module';
           res.set('Cross-Origin-Resource-Policy', 'cross-origin');
           res.set('Access-Control-Allow-Origin', '*');
         },
+        // Disable index.html fallback for uploads directory
+        index: false,
       },
     }),
 

@@ -4,30 +4,35 @@ description: how to run the full matcha-ai stack
 
 # Running Matcha AI
 
-Follow these steps to launch the entire ecosystem (Infrastructure, Backend, AI Inference, and Frontend).
+## Single Command (Recommended)
 
-## 1. Start Infrastructure & AI Service (Docker)
-This starts Postgres, Redis, MinIO, and the Python Inference service in a stable 3.11 environment.
-
-// turbo
-```powershell
-docker-compose up -d --build
-```
-
-## 2. Start Application Services (Turbo)
-Run this from the root directory to start both the Orchestrator (NestJS) and the Web Frontend (Next.js) concurrently.
+Run everything from the repo root:
 
 // turbo
-```powershell
-npx turbo run dev
+```bash
+docker-compose up -d && mkdir -p uploads && npx turbo run dev
 ```
 
-## Service Access Points
-- **Web Frontend**: [http://localhost:3000](http://localhost:3000) (or 3001 if 3000 is occupied)
-- **Orchestrator API**: [http://localhost:4000](http://localhost:4000)
-- **Inference API**: [http://localhost:8000](http://localhost:8000)
-- **MinIO Console**: [http://localhost:9001](http://localhost:9001)
+This starts:
+- **Docker** → PostgreSQL, Redis, MinIO
+- **Inference service** → Python/uvicorn on :8000 (via `services/inference` `dev` script)
+- **Orchestrator** → NestJS on :4000
+- **Web frontend** → Next.js on :3000
+
+> **First time only** — you must create the Python venv first:
+> ```bash
+> cd services/inference && python3 -m venv venv && venv/bin/pip install -r requirements.txt && cd ../..
+> ```
+
+## Service URLs
+| Service | URL |
+|---------|-----|
+| Web Frontend | http://localhost:3000 |
+| Orchestrator API | http://localhost:4000 |
+| Inference API | http://localhost:8000 |
+| MinIO Console | http://localhost:9001 |
 
 ## Troubleshooting
-- If Prisma types are missing, run: `cd services/orchestrator; npx prisma generate`
-- Ensure the `uploads/` directory exists in the root for video processing.
+- **Prisma types missing**: `cd services/orchestrator && npx prisma generate`
+- **Inference fails to start**: Make sure `services/inference/venv/` exists (see First Time setup above)
+- **Stuck at 0%**: Inference service likely not running — check terminal output for port :8000 errors

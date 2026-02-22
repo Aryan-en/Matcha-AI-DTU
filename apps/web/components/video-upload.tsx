@@ -8,12 +8,15 @@ import { cn } from "@/lib/utils";
 import { io, Socket } from "socket.io-client";
 import { createApiClient, WsEvents, isYoutubeUrl, extractYoutubeId } from "@matcha/shared";
 
-const api = createApiClient("http://localhost:4000");
+const ORCHESTRATOR_URL = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:4000";
+const api = createApiClient(ORCHESTRATOR_URL);
 
 export const VideoUpload = React.memo(function VideoUploadContent() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingProgress, setProcessingProgress] = useState(0);
@@ -21,8 +24,31 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
   const [matchId, setMatchId] = useState<string | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
 
+  const parseTimeToSeconds = (timeStr: string): number | undefined => {
+    if (!timeStr || !timeStr.trim()) return undefined;
+    const parts = timeStr.trim().split(":").map(part => Number(part.trim()));
+    if (parts.some(isNaN)) return undefined;
+
+    if (parts.length === 3) {
+      return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    } else if (parts.length === 2) {
+      return parts[0] * 60 + parts[1];
+    } else if (parts.length === 1) {
+      return parts[0];
+    }
+    return undefined;
+  };
+
+  // Reset YouTube range when URL is cleared
   useEffect(() => {
-    const newSocket = io("http://localhost:4000");
+    if (!youtubeUrl) {
+      setStartTime("");
+      setEndTime("");
+    }
+  }, [youtubeUrl]);
+
+  useEffect(() => {
+    const newSocket = io(ORCHESTRATOR_URL);
     setSocket(newSocket);
 
     return () => {
@@ -30,37 +56,69 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
     };
   }, []);
 
+  // Socket.IO live progress
   useEffect(() => {
-    if (socket && matchId) {
-      socket.emit(WsEvents.JOIN_MATCH, matchId);
+    if (!socket || !matchId) return;
 
-      socket.on(WsEvents.PROGRESS, (data: { progress: number }) => {
-        if (data.progress === -1) {
-          setStatus("error");
-          return;
-        }
-        setProcessingProgress(Math.min(data.progress, 99)); // hold at 99 until complete event
-        if (data.progress >= 100) {
-          setProcessingProgress(100);
-          setStatus("success");
-        }
-      });
+    socket.emit(WsEvents.JOIN_MATCH, matchId);
 
-      socket.on(WsEvents.COMPLETE, () => {
+    const onProgress = (data: { progress: number }) => {
+      if (data.progress === -1) {
+        setStatus("error");
+        return;
+      }
+      setProcessingProgress(Math.min(data.progress, 99));
+      if (data.progress >= 100) {
         setProcessingProgress(100);
         setStatus("success");
-        // Auto-navigate to match detail after a short pause
-        setTimeout(() => {
-          if (matchId) router.push(`/matches/${matchId}`);
-        }, 1500);
-      });
+      }
+    };
 
-      return () => {
-        socket.off("progress");
-        socket.off("complete");
-      };
-    }
-  }, [socket, matchId]);
+    const onComplete = () => {
+      setProcessingProgress(100);
+      setStatus("success");
+      setTimeout(() => {
+        if (matchId) router.push(`/matches/${matchId}`);
+      }, 1500);
+    };
+
+    socket.on(WsEvents.PROGRESS, onProgress);
+    socket.on(WsEvents.COMPLETE, onComplete);
+
+    return () => {
+      socket.off(WsEvents.PROGRESS, onProgress);
+      socket.off(WsEvents.COMPLETE, onComplete);
+    };
+  }, [socket, matchId, router]);
+
+  // HTTP polling fallback — runs alongside the socket so progress never stays
+  // stuck at 0% if the socket is slow to connect or temporarily disconnected.
+  useEffect(() => {
+    if (!matchId || status === "success" || status === "error" || status === "idle" || status === "uploading") return;
+
+    const poll = async () => {
+      try {
+        const m = await api.getMatch(matchId);
+        if (!m) return;
+        if (m.status === "COMPLETED") {
+          setProcessingProgress(100);
+          setStatus("success");
+          setTimeout(() => router.push(`/matches/${matchId}`), 1500);
+        } else if (m.status === "FAILED") {
+          setStatus("error");
+        } else if (typeof m.progress === "number" && m.progress > 0) {
+          // Only update from HTTP if we haven't already gotten a higher value via socket
+          setProcessingProgress((prev) => Math.max(prev, Math.min(m.progress ?? 0, 99)));
+        }
+      } catch {
+        // silently ignore — socket will also try
+      }
+    };
+
+    poll(); // immediate first check
+    const iv = setInterval(poll, 3000);
+    return () => clearInterval(iv);
+  }, [matchId, status, router]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles?.length) {
@@ -84,7 +142,7 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
     if (!file) return;
 
     setUploading(true);
-    
+
     const fileToUpload = file;
 
     try {
@@ -98,14 +156,16 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
         const data = await api.uploadVideo(fileToUpload, (pct) => {
           setUploadProgress(pct);
         });
-        
+
         setUploadProgress(100);
         setMatchId(data.id);
         setStatus("processing");
+        // Trigger dashboard refresh
+        window.dispatchEvent(new CustomEvent("matcha:refresh"));
       } catch (err) {
         throw err;
       }
-      
+
     } catch (error) {
       console.error(error);
       setStatus("error");
@@ -123,9 +183,14 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
     setUploadProgress(100); // No real upload progress for URL submission
 
     try {
-      const data = await api.uploadYoutube(youtubeUrl);
+      const startSec = parseTimeToSeconds(startTime);
+      const endSec = parseTimeToSeconds(endTime);
+
+      const data = await api.uploadYoutube(youtubeUrl, startSec, endSec);
       setMatchId(data.id);
       setStatus("processing");
+      // Trigger dashboard refresh
+      window.dispatchEvent(new CustomEvent("matcha:refresh"));
     } catch (error) {
       console.error(error);
       setStatus("error");
@@ -138,37 +203,68 @@ export const VideoUpload = React.memo(function VideoUploadContent() {
   const removeFile = (e: React.MouseEvent) => {
     e.stopPropagation();
     setFile(null);
+    setYoutubeUrl("");
+    setStartTime("");
+    setEndTime("");
     setStatus("idle");
     setUploadProgress(0);
     setProcessingProgress(0);
   };
 
+  const isYoutube = isYoutubeUrl(youtubeUrl);
+
   return (
     <div className="w-full flex flex-col gap-6">
       {/* YouTube URL Input Area */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="PASTE YOUTUBE URL HERE..."
-          value={youtubeUrl}
-          onChange={(e) => setYoutubeUrl(e.target.value)}
-          disabled={status !== "idle" || file !== null}
-          className="flex-1 bg-background border border-border px-4 py-3 font-mono text-[11px] uppercase tracking-widest text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-        />
-        <button
-          onClick={uploadYoutube}
-          disabled={!isYoutubeUrl(youtubeUrl) || status !== "idle" || file !== null || uploading}
-          className="font-mono text-[10px] uppercase tracking-widest px-6 py-3 transition-all duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-2"
-        >
-          {uploading ? (
-            <>
-              <Loader2 className="size-3 animate-spin" />
-              ANALYSE URL
-            </>
-          ) : (
-            "ANALYSE URL"
-          )}
-        </button>
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="PASTE YOUTUBE URL HERE..."
+            value={youtubeUrl}
+            onChange={(e) => setYoutubeUrl(e.target.value)}
+            disabled={status !== "idle" || file !== null}
+            className="flex-1 bg-background border border-border px-4 py-3 font-mono text-[11px] uppercase tracking-widest text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+          />
+          <button
+            onClick={uploadYoutube}
+            disabled={!isYoutube || status !== "idle" || file !== null || uploading}
+            className="font-mono text-[10px] uppercase tracking-widest px-6 py-3 transition-all duration-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer bg-primary text-[#07080F] font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-2"
+          >
+            {uploading ? (
+              <>
+                <Loader2 className="size-3 animate-spin" />
+                ANALYSE URL
+              </>
+            ) : (
+              "ANALYSE URL"
+            )}
+          </button>
+        </div>
+
+        {isYoutube && status === "idle" && (
+          <div className="flex gap-4 items-center animate-fade-in">
+            <div className="flex-1 flex gap-2">
+              <input
+                type="text"
+                placeholder="START (eg. 30:00)"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-1/2 bg-background border border-border px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-foreground focus:outline-none focus:border-primary transition-colors"
+              />
+              <input
+                type="text"
+                placeholder="END (eg. 45:00)"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-1/2 bg-background border border-border px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-foreground focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <span className="font-mono text-[8px] text-muted-foreground uppercase tracking-widest whitespace-nowrap">
+              LEAVE BLANK FOR FULL VIDEO (MAX 3H)
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-4">

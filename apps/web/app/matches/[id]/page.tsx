@@ -32,18 +32,18 @@ import { createApiClient } from "@matcha/shared";
 // Web-only props on EVENT_CONFIG (icon, bg, border) — extend the shared logic
 const THEME_MAP: Record<string, { bg: string; border: string; color: string }> = {
   success: { bg: "bg-emerald-400/15", border: "border-emerald-400/40", color: "text-emerald-400" },
-  warning: { bg: "bg-amber-400/15",   border: "border-amber-400/40",   color: "text-amber-400" },
-  error:   { bg: "bg-red-400/15",     border: "border-red-400/40",     color: "text-red-400"   },
-  info:    { bg: "bg-blue-400/15",    border: "border-blue-400/40",    color: "text-blue-400"  },
-  accent:  { bg: "bg-purple-400/15",  border: "border-purple-400/40",  color: "text-purple-400"},
-  neutral: { bg: "bg-zinc-400/15",    border: "border-zinc-400/40",    color: "text-zinc-400"  },
+  warning: { bg: "bg-amber-400/15", border: "border-amber-400/40", color: "text-amber-400" },
+  error: { bg: "bg-red-400/15", border: "border-red-400/40", color: "text-red-400" },
+  info: { bg: "bg-blue-400/15", border: "border-blue-400/40", color: "text-blue-400" },
+  accent: { bg: "bg-purple-400/15", border: "border-purple-400/40", color: "text-purple-400" },
+  neutral: { bg: "bg-zinc-400/15", border: "border-zinc-400/40", color: "text-zinc-400" },
 };
 
 const EVENT_CONFIG: Record<string, { label: string; bg: string; border: string; color: string; icon: React.ReactNode }> = {
-  GOAL:      { ...SHARED_EVENT_CONFIG.GOAL,      ...THEME_MAP[SHARED_EVENT_CONFIG.GOAL.theme],      icon: <Target className="w-3.5 h-3.5" /> },
-  TACKLE:    { ...SHARED_EVENT_CONFIG.TACKLE,    ...THEME_MAP[SHARED_EVENT_CONFIG.TACKLE.theme],    icon: <Zap className="w-3.5 h-3.5" /> },
-  FOUL:      { ...SHARED_EVENT_CONFIG.FOUL,      ...THEME_MAP[SHARED_EVENT_CONFIG.FOUL.theme],      icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  SAVE:      { ...SHARED_EVENT_CONFIG.SAVE,      ...THEME_MAP[SHARED_EVENT_CONFIG.SAVE.theme],      icon: <Shield className="w-3.5 h-3.5" /> },
+  GOAL: { ...SHARED_EVENT_CONFIG.GOAL, ...THEME_MAP[SHARED_EVENT_CONFIG.GOAL.theme], icon: <Target className="w-3.5 h-3.5" /> },
+  TACKLE: { ...SHARED_EVENT_CONFIG.TACKLE, ...THEME_MAP[SHARED_EVENT_CONFIG.TACKLE.theme], icon: <Zap className="w-3.5 h-3.5" /> },
+  FOUL: { ...SHARED_EVENT_CONFIG.FOUL, ...THEME_MAP[SHARED_EVENT_CONFIG.FOUL.theme], icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  SAVE: { ...SHARED_EVENT_CONFIG.SAVE, ...THEME_MAP[SHARED_EVENT_CONFIG.SAVE.theme], icon: <Shield className="w-3.5 h-3.5" /> },
   Celebrate: { ...SHARED_EVENT_CONFIG.Celebrate, ...THEME_MAP[SHARED_EVENT_CONFIG.Celebrate.theme], icon: <Star className="w-3.5 h-3.5" /> },
 };
 const DEFAULT_EVT = { ...DEFAULT_EVENT_CONFIG, ...THEME_MAP[DEFAULT_EVENT_CONFIG.theme], icon: <Star className="w-3.5 h-3.5" /> };
@@ -103,8 +103,8 @@ function EventsTimeline({ events, duration, onSeek }: { events: MatchEvent[]; du
     <div className="bg-card border border-border p-4">
       <div className="flex items-center gap-2 mb-3">
         <BarChart3 className="size-4 text-emerald-500" />
-        <span className="text-sm font-semibold text-foreground uppercase tracking-wide">Events Timeline</span>
-        <span className="ml-auto text-xs text-muted-foreground">{events.length} events</span>
+        <span className="text-sm font-semibold text-foreground uppercase tracking-wide">Temporal Event Distribution</span>
+        <span className="ml-auto text-xs text-muted-foreground">{events.length} data points</span>
       </div>
       <div className="relative h-8 bg-muted overflow-visible">
         {events.map((ev) => {
@@ -188,11 +188,11 @@ export default function MatchDetailPage() {
   const [reanalyzing, setReanalyzing] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [showOverlay, setShowOverlay] = useState(true);
-  
+
   // seekFnRef: VideoPlayer injects its internal seekTo so parent buttons can seek
-  const videoSeekRef = useRef<(t: number) => void>(() => {});
-  
-  const API_BASE = "http://localhost:4000";
+  const videoSeekRef = useRef<(t: number) => void>(() => { });
+
+  const API_BASE = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:4000";
   const client = useMemo(() => createApiClient(`${API_BASE}`), []);
 
   const { liveEvents, isConnected } = useMatchSocket({
@@ -263,14 +263,14 @@ export default function MatchDetailPage() {
   const events = match?.events ?? [];
   const emotionScores = match?.emotionScores ?? [];
 
-  const byType        = useMemo(() => countEventsByType(events),                         [events]);
-  const topScore      = useMemo(() => maxScore(events),                                   [events]);
-  const avgConf       = useMemo(() => avgConfidence(events),                              [events]);
-  const top5Moments   = useMemo(() => getTop5Moments(events),                             [events]);
-  const liveIntensity = useMemo(() => getLiveIntensity(emotionScores, currentTime),       [emotionScores, currentTime]);
-  const allEventTypes = useMemo(() => Array.from(new Set(events.map(e => e.type))),       [events]);
-  const filteredEvents = useMemo(() => filterEventsByType(events, eventTypeFilter),       [events, eventTypeFilter]);
-  const sortedLive    = useMemo(() => [...liveEvents].sort((a, b) => b.timestamp - a.timestamp), [liveEvents]);
+  const byType = useMemo(() => countEventsByType(events), [events]);
+  const topScore = useMemo(() => maxScore(events), [events]);
+  const avgConf = useMemo(() => avgConfidence(events), [events]);
+  const top5Moments = useMemo(() => getTop5Moments(events), [events]);
+  const liveIntensity = useMemo(() => getLiveIntensity(emotionScores, currentTime), [emotionScores, currentTime]);
+  const allEventTypes = useMemo(() => Array.from(new Set(events.map(e => e.type))), [events]);
+  const filteredEvents = useMemo(() => filterEventsByType(events, eventTypeFilter), [events, eventTypeFilter]);
+  const sortedLive = useMemo(() => [...liveEvents].sort((a, b) => b.timestamp - a.timestamp), [liveEvents]);
 
 
   if (loading) {
@@ -311,80 +311,98 @@ export default function MatchDetailPage() {
         />
       )}
 
-      <nav className="border-b border-border px-4 sm:px-6 py-4 flex flex-wrap items-center gap-3 sm:gap-4 bg-muted/30">
-        <Link href="/" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-opacity duration-200 hover:opacity-80 text-sm uppercase tracking-wide focus:outline-none focus-visible:ring-2 focus-visible:ring-border rounded-sm">
-          <ArrowLeft className="size-4" /> Back
-        </Link>
-        <div className="hidden sm:block h-4 w-px bg-border" />
-        <span className="font-mono text-xs sm:text-sm text-muted-foreground truncate max-w-[150px] sm:max-w-xs">{match.id}</span>
-        <span className={`ml-auto inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 sm:px-3 py-1 sm:py-1.5 border font-medium uppercase tracking-wide
-          ${match.status === "COMPLETED" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/40"
-          : match.status === "PROCESSING" ? "text-blue-400 bg-blue-500/10 border-blue-500/40"
-          : "text-zinc-400 bg-zinc-500/10 border-zinc-500/20"}`}>
-          {match.status === "PROCESSING" && <Loader2 className="w-3 h-3 animate-spin" />}
-          {match.status}
-        </span>
-        <button
-          onClick={handleReanalyze}
-          disabled={reanalyzing || match.status === "PROCESSING"}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/50 px-4 py-1.5 transition-all duration-200 disabled:opacity-40 uppercase tracking-wide cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed"
-          title="Re-run AI analysis (updates tracking, events, highlights)"
-          aria-label="Re-analyze match"
-        >
-          {reanalyzing
-            ? <Loader2 className="size-3.5 animate-spin" />
-            : <Cpu className="size-3.5" />
-          }
-          Re-analyze
-        </button>
-        {/* PDF Report download — only on completed matches */}
-        {match.status === "COMPLETED" && (
-          <PDFReportButton
-            data={{
-              id: match.id,
-              status: match.status,
-              duration: match.duration ?? 0,
-              summary: match.summary ?? undefined,
-              createdAt: match.createdAt,
-              events: match.events,
-              highlights: match.highlights,
-              teamColors: match.teamColors ?? undefined,
-              heatmapUrl: match.heatmapUrl ?? undefined,
-              topSpeedKmh: match.topSpeedKmh ?? undefined,
-            }}
-          />
-        )}
-        <button
-          onClick={() => setShowDeleteModal(true)}
-          className="flex items-center gap-1.5 text-[10px] sm:text-xs text-zinc-500 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 px-3 sm:px-4 py-1.5 transition-all duration-200 uppercase tracking-wide cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
-          aria-label="Delete match analysis"
-        >
-          <Trash2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Delete</span>
-        </button>
-      </nav>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {[
-            { label: "Duration",    value: formatTime(duration),                       sub: "match length" },
-            { label: "Events",      value: match.events.length.toString(),      sub: `${(avgConf * 100).toFixed(0)}% avg conf` },
-            { label: "Highlights",  value: match.highlights.length.toString(),  sub: "key moments" },
-            { label: "Top Score",   value: topScore.toFixed(1),                 sub: "out of 10" },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-card border border-border p-4 hover:border-primary/40 transition-all card-flat">
-              <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">{stat.label}</p>
-              <p className="text-3xl font-bold text-foreground font-heading">{stat.value}</p>
-              <p className="text-xs text-muted-foreground/80 mt-0.5">{stat.sub}</p>
+      {/* ══════ HEADER ══════ */}
+      <nav className="border-b border-border/50 px-4 sm:px-6 py-4 bg-linear-to-b from-muted/50 to-background">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3">
+              <Link href="/" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg p-2 -m-2">
+                <ArrowLeft className="size-5" /> Back
+              </Link>
+              <div className="h-5 w-px bg-border/50" />
+              <div className="flex flex-col gap-1">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Match ID</p>
+                <p className="font-mono text-sm text-foreground font-medium">{match.id.slice(0, 8)}...</p>
+              </div>
             </div>
-          ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`inline-flex items-center gap-2 text-xs px-3 py-2 border rounded-lg font-semibold uppercase tracking-wide transition-all
+                ${match.status === "COMPLETED" ? "text-emerald-400 bg-emerald-500/10 border-emerald-400/40"
+                  : match.status === "PROCESSING" ? "text-blue-400 bg-blue-500/10 border-blue-400/40 animate-pulse"
+                    : "text-zinc-400 bg-zinc-500/10 border-zinc-400/20"}`}>
+                {match.status === "PROCESSING" && <div className="size-2 bg-blue-400 rounded-full animate-pulse" />}
+                {match.status === "COMPLETED" && <div className="size-2 bg-emerald-400 rounded-full" />}
+                {match.status}
+              </span>
+              {match.status === "COMPLETED" && (
+                <PDFReportButton
+                  data={{
+                    id: match.id,
+                    status: match.status,
+                    duration: match.duration ?? 0,
+                    summary: match.summary ?? undefined,
+                    createdAt: match.createdAt,
+                    events: match.events,
+                    highlights: match.highlights,
+                    teamColors: match.teamColors ?? undefined,
+                    heatmapUrl: match.heatmapUrl ?? undefined,
+                    topSpeedKmh: match.topSpeedKmh ?? undefined,
+                  }}
+                />
+              )}
+              <button
+                onClick={handleReanalyze}
+                disabled={reanalyzing || match.status === "PROCESSING"}
+                className="flex items-center gap-2 text-xs text-foreground bg-muted hover:bg-muted/80 border border-border/50 px-3 py-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                title="Re-run AI analysis"
+                aria-label="Re-analyze match"
+              >
+                {reanalyzing ? <Loader2 className="size-4 animate-spin" /> : <Cpu className="size-4" />}
+                <span className="hidden sm:inline">Re-analyze</span>
+              </button>
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="flex items-center gap-2 text-xs text-zinc-500 hover:text-red-400 bg-muted hover:bg-red-500/5 border border-border/50 hover:border-red-400/40 px-3 py-2 rounded-lg transition-all duration-200 font-medium cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                aria-label="Delete match analysis"
+              >
+                <Trash2 className="size-4" />
+                <span className="hidden sm:inline">Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8">
+
+        {/* ══════ KEY STATS ══════ */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+          {[
+            { label: "Duration", value: formatTime(duration), sub: "match length", icon: Clock },
+            { label: "Events", value: match.events.length.toString(), sub: `${(avgConf * 100).toFixed(0)}% confidence`, icon: BarChart3 },
+            { label: "Highlights", value: match.highlights.length.toString(), sub: "top moments", icon: Star },
+            { label: "Top Score", value: topScore.toFixed(1), sub: "max intensity", icon: Zap },
+          ].map((stat) => {
+            const IconComp = stat.icon;
+            return (
+              <div key={stat.label} className="bg-card border border-border/50 p-4 sm:p-5 rounded-xl hover:border-primary/40 transition-all duration-300 hover:bg-card/80">
+                <div className="flex items-start justify-between mb-3">
+                  <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">{stat.label}</p>
+                  <IconComp className="size-4 text-primary/60" />
+                </div>
+                <p className="text-2xl sm:text-3xl font-bold text-foreground mb-1">{stat.value}</p>
+                <p className="text-xs text-muted-foreground/70">{stat.sub}</p>
+              </div>
+            );
+          })}
         </div>
 
         {match.summary && (
           <div className="bg-card border border-border p-5">
             <div className="flex items-center gap-2 mb-3">
               <Cpu className="size-4 text-emerald-400" />
-              <span className="text-sm font-semibold text-foreground font-heading uppercase tracking-wide">AI Match Analysis</span>
-              <span className="ml-auto text-[10px] text-muted-foreground border border-border-2 px-2 py-0.5 uppercase tracking-wider">Gemini 2.0 Flash</span>
+              <span className="text-sm font-semibold text-foreground font-heading uppercase tracking-wide">Tactical Intelligence Summary</span>
+              <span className="ml-auto text-[10px] text-muted-foreground border border-border-2 px-2 py-0.5 uppercase tracking-wider">AI Engine: Gemini 2.0 Flash</span>
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">{match.summary}</p>
           </div>
@@ -394,31 +412,31 @@ export default function MatchDetailPage() {
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Trophy className="size-4 sm:size-5 text-amber-400" />
-              <span className="text-sm sm:text-base font-semibold text-foreground font-heading uppercase tracking-widest">Top 5 Context Moments</span>
-              <span className="text-[10px] sm:text-xs text-muted-foreground ml-auto hidden sm:inline-block">Click any moment to instantly seek video feed</span>
+              <span className="text-sm sm:text-base font-semibold text-foreground font-heading uppercase tracking-widest">High-Impact Sequential Analysis</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground ml-auto hidden sm:inline-block">Select event for immediate tactical review</span>
             </div>
-            
+
             {/* Scrollable Row (Desktop) / Vertical Stack (Mobile) */}
             <div className="flex flex-col sm:flex-row sm:overflow-x-auto pb-2 gap-3 sm:gap-4 hide-scrollbar snap-x snap-mandatory">
               {top5Moments.map((ev, i) => {
                 const cfg = EVENT_CONFIG[ev.type] ?? DEFAULT_EVT;
                 const rank = i + 1;
-                
+
                 // Tiered styling based on rank
                 const isGold = rank === 1;
                 const isSilver = rank === 2;
                 const isBronze = rank === 3;
-                
-                const rankBorder = isGold ? "border-amber-400/50 hover:border-amber-400" 
-                                 : isSilver ? "border-zinc-300/40 hover:border-zinc-300" 
-                                 : isBronze ? "border-amber-700/50 hover:border-amber-600" 
-                                 : "border-border hover:border-border-2";
-                                 
-                const rankBg = isGold ? "bg-amber-400/5 hover:bg-amber-400/10" 
-                             : isSilver ? "bg-zinc-300/5 hover:bg-zinc-300/10" 
-                             : isBronze ? "bg-amber-700/5 hover:bg-amber-700/10" 
-                             : "bg-card hover:bg-muted/50";
-                             
+
+                const rankBorder = isGold ? "border-amber-400/50 hover:border-amber-400"
+                  : isSilver ? "border-zinc-300/40 hover:border-zinc-300"
+                    : isBronze ? "border-amber-700/50 hover:border-amber-600"
+                      : "border-border hover:border-border-2";
+
+                const rankBg = isGold ? "bg-amber-400/5 hover:bg-amber-400/10"
+                  : isSilver ? "bg-zinc-300/5 hover:bg-zinc-300/10"
+                    : isBronze ? "bg-amber-700/5 hover:bg-amber-700/10"
+                      : "bg-card hover:bg-muted/50";
+
                 const rankTextColor = isGold ? "text-amber-400" : isSilver ? "text-zinc-300" : isBronze ? "text-amber-600" : "text-muted-foreground/50";
 
                 return (
@@ -441,16 +459,16 @@ export default function MatchDetailPage() {
                     <p className="font-mono text-sm text-foreground/80 mb-1 group-hover:text-foreground transition-colors">
                       {formatTime(ev.timestamp)}
                     </p>
-                    
+
                     {/* Context Score */}
                     <div className="flex items-center gap-3 mb-3 w-full">
                       <div className="text-xl sm:text-2xl font-display font-medium tracking-wide">
                         <ScoreBadge score={ev.finalScore} />
                       </div>
                       <div className="h-1 flex-1 bg-background/50 overflow-hidden border border-border/50">
-                        <div 
-                          className={`h-full transition-all duration-700 ease-out ${isGold ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : 'bg-emerald-500'}`} 
-                          style={{ width: `${(ev.finalScore / 10) * 100}%` }} 
+                        <div
+                          className={`h-full transition-all duration-700 ease-out ${isGold ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : 'bg-emerald-500'}`}
+                          style={{ width: `${(ev.finalScore / 10) * 100}%` }}
                         />
                       </div>
                     </div>
@@ -497,6 +515,7 @@ export default function MatchDetailPage() {
                   events={match.events}
                   highlights={match.highlights}
                   initialTeamColors={match.teamColors}
+                  trackingData={match.trackingData}
                   seekFnRef={videoSeekRef}
                   onTimeUpdate={handleTimeUpdate}
                 />
@@ -504,10 +523,9 @@ export default function MatchDetailPage() {
                 <div className="bg-muted/30 border border-border px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
                   <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
                     <div className="flex items-center gap-1.5">
-                      <div className={`size-2 ${
-                        match.status === "COMPLETED" ? "bg-emerald-400" :
+                      <div className={`size-2 ${match.status === "COMPLETED" ? "bg-emerald-400" :
                         match.status === "PROCESSING" ? "bg-blue-400 animate-pulse" : "bg-muted-foreground"
-                      }`} />
+                        }`} />
                       <span className="text-[10px] sm:text-xs font-bold tracking-widest text-muted-foreground uppercase">
                         {match.status === "PROCESSING" ? "Live" : "Full Time"}
                       </span>
@@ -549,7 +567,7 @@ export default function MatchDetailPage() {
                     </div>
                     <div className="h-2 bg-blue-950/50 overflow-hidden rounded-sm">
                       <div
-                        className="h-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-500"
+                        className="h-full bg-linear-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-500"
                         style={{ width: `${processingProgress}%` }}
                       />
                     </div>
@@ -597,9 +615,8 @@ export default function MatchDetailPage() {
                           {cfg.icon} {cfg.label}
                         </span>
                         <span className="font-mono text-[10px] text-muted-foreground">{formatTime(ev.timestamp)}</span>
-                        <span className={`ml-auto font-bold text-[10px] font-mono ${
-                          ev.finalScore >= 7.5 ? 'text-emerald-400' : ev.finalScore >= 5 ? 'text-amber-400' : 'text-muted-foreground'
-                        }`}>{ev.finalScore?.toFixed(1)}</span>
+                        <span className={`ml-auto font-bold text-[10px] font-mono ${ev.finalScore >= 7.5 ? 'text-emerald-400' : ev.finalScore >= 5 ? 'text-amber-400' : 'text-muted-foreground'
+                          }`}>{ev.finalScore?.toFixed(1)}</span>
                       </div>
                     );
                   })}
@@ -617,31 +634,37 @@ export default function MatchDetailPage() {
                       ? "bg-primary text-[#07080F]"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
                 >
-                  {tab === "highlights" ? `Highlights (${match.highlights.length})` 
-                   : tab === "events" ? (match.status === "PROCESSING" ? `Events (${liveEvents.length} live)` : `Events (${match.events.length})`)
-                   : "Analytics"}
+                  {tab === "highlights" ? `Highlights (${match.highlights.length})`
+                    : tab === "events" ? (match.status === "PROCESSING" ? `Events (${liveEvents.length} live)` : `Events (${match.events.length})`)
+                      : "Analytics"}
                 </button>
               ))}
             </div>
 
             {activeTab === "highlights" && (
-              <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
                 {match.highlightReelUrl && (
-                  <div className="mb-4 p-4 bg-primary/20 border border-primary/30">
+                  <div className="mb-4 p-4 bg-primary/20 border border-primary/30 relative overflow-hidden group/reel">
+                    <div className="absolute top-0 right-0 p-1 bg-primary text-[8px] font-black uppercase text-background -rotate-45 translate-x-3 -translate-y-1 w-20 text-center shadow-xl">PRO REEL</div>
                     <h3 className="text-sm font-bold text-primary mb-2 flex items-center gap-2 font-heading uppercase tracking-wide">
-                      <Film className="size-4" /> Full Highlight Reel
+                      <Film className="size-4" /> Broadcast Narrative Reel
                     </h3>
-                    <p className="text-xs text-muted-foreground mb-3">
-                      A combined broadcast-style reel with AI commentary, crowd noise, and music.
+                    <p className="text-xs text-muted-foreground mb-3 pr-8">
+                      Professional summary with synchronized AI commentary, localized voices, and smart transition physics.
                     </p>
-                    <a
-                      href={getAssetUrl(match.highlightReelUrl)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm font-semibold text-background bg-primary hover:bg-primary/90 px-4 py-2 transition-all uppercase tracking-wide"
-                    >
-                      <Play className="size-4" /> Watch Reel
-                    </a>
+                    <div className="flex flex-wrap gap-2">
+                        <a
+                        href={getAssetUrl(match.highlightReelUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-background bg-primary hover:bg-primary/90 px-4 py-2 transition-all uppercase tracking-wide shadow-lg shadow-primary/20"
+                        >
+                        <Play className="size-4" /> Watch 16:9
+                        </a>
+                        <button className="inline-flex items-center gap-2 text-xs font-semibold text-primary border border-primary/40 hover:bg-primary/10 px-3 py-2 transition-all uppercase tracking-wide">
+                            <Zap className="size-3" /> Gen 9:16 Vertical
+                        </button>
+                    </div>
                   </div>
                 )}
                 {!match.highlights.length && (
@@ -720,11 +743,10 @@ export default function MatchDetailPage() {
                   <div className="flex flex-wrap gap-1.5">
                     <button
                       onClick={() => setEventTypeFilter("ALL")}
-                      className={`text-xs px-3 py-1.5 border transition-all uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${
-                        eventTypeFilter === "ALL"
-                          ? "bg-muted-foreground/20 border-border-2 text-foreground"
-                          : "bg-transparent border-border text-muted-foreground hover:border-border-2 hover:text-foreground"
-                      }`}
+                      className={`text-xs px-3 py-1.5 border transition-all uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${eventTypeFilter === "ALL"
+                        ? "bg-muted-foreground/20 border-border-2 text-foreground"
+                        : "bg-transparent border-border text-muted-foreground hover:border-border-2 hover:text-foreground"
+                        }`}
                     >
                       All ({match.events.length})
                     </button>
@@ -734,11 +756,10 @@ export default function MatchDetailPage() {
                         <button
                           key={type}
                           onClick={() => setEventTypeFilter(type)}
-                          className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 border transition-all uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${
-                            eventTypeFilter === type
-                              ? `${cfg.bg} ${cfg.border} ${cfg.color}`
-                              : "bg-transparent border-border text-muted-foreground hover:border-border-2 hover:text-foreground"
-                          }`}
+                          className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 border transition-all uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${eventTypeFilter === type
+                            ? `${cfg.bg} ${cfg.border} ${cfg.color}`
+                            : "bg-transparent border-border text-muted-foreground hover:border-border-2 hover:text-foreground"
+                            }`}
                         >
                           {cfg.icon} {cfg.label} ({byType[type] ?? 0})
                         </button>
@@ -747,46 +768,46 @@ export default function MatchDetailPage() {
                   </div>
                 )}
 
-                <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
                   {!filteredEvents.length && (
                     <div className="text-center text-muted-foreground/80 text-sm py-12 border border-dashed border-border-2 bg-muted/50">
                       No events detected
                     </div>
                   )}
-                  {filteredEvents.map((ev) => {
-                    const cfg = EVENT_CONFIG[ev.type] ?? DEFAULT_EVT;
-                    return (
-                      <div
-                        key={ev.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => seekTo(ev.timestamp)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seekTo(ev.timestamp); } }}
-                        className="w-full text-left border border-border hover:border-border-2 bg-card hover:bg-muted p-3 transition-all group cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 border shrink-0 ${cfg.bg} ${cfg.border} ${cfg.color}`}>
-                            {cfg.icon} {cfg.label}
-                          </span>
-                          <span className="text-xs text-muted-foreground font-mono shrink-0">{formatTime(ev.timestamp)}</span>
-                          <div className="flex-1 min-w-0">
-                            {ev.commentary && (
-                              <p className="text-xs text-muted-foreground/80 truncate group-hover:text-muted-foreground transition-colors">
-                                {ev.commentary}
-                              </p>
-                            )}
-                          </div>
-                          <div className="shrink-0 flex items-center gap-2">
-                            {ev.commentary && (
-                              <CopyButton text={ev.commentary} />
-                            )}
-                            <span className="text-xs text-muted-foreground/50">{(ev.confidence * 100).toFixed(0)}%</span>
+                  <div className="relative pt-2 pl-4 border-l border-zinc-800 space-y-6">
+                    {filteredEvents.map((ev, idx) => {
+                      const cfg = EVENT_CONFIG[ev.type] ?? DEFAULT_EVT;
+                      const isLast = idx === filteredEvents.length - 1;
+                      return (
+                        <div
+                          key={ev.id}
+                          role="button"
+                          onClick={() => seekTo(ev.timestamp)}
+                          className="group relative flex flex-col gap-2 cursor-pointer outline-none"
+                        >
+                          {/* Dot on line */}
+                          <div className="absolute -left-5 top-1.5 size-3 bg-zinc-900 border border-zinc-700 rounded-full group-hover:border-primary transition-colors" />
+                          
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-mono text-primary font-bold">{formatTime(ev.timestamp)}</span>
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 border ${cfg.bg} ${cfg.border} ${cfg.color}`}>
+                              {cfg.label}
+                            </span>
                             <ScoreBadge score={ev.finalScore} />
                           </div>
+                          
+                          {ev.commentary && (
+                            <div className="pl-0 border-l-0">
+                                <p className="text-sm text-muted-foreground leading-relaxed group-hover:text-foreground transition-colors">
+                                    {ev.commentary}
+                                </p>
+                            </div>
+                          )}
+                          {!isLast && <div className="h-px w-full bg-linear-to-r from-zinc-800/50 to-transparent mt-2" />}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -825,12 +846,12 @@ export default function MatchDetailPage() {
                     <div className="flex gap-4">
                       {(match.teamColors as number[][]).slice(0, 2).map((color, idx) => {
                         const [r, g, b] = color;
-                        const hex = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+                        const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
                         return (
                           <div key={idx} className="flex items-center gap-3">
-                            <div 
-                              className="size-10 border border-border/60 shadow-lg" 
-                              style={{ backgroundColor: hex, boxShadow: `0 0 12px ${hex}60` }} 
+                            <div
+                              className="size-10 border border-border/60 shadow-lg"
+                              style={{ backgroundColor: hex, boxShadow: `0 0 12px ${hex}60` }}
                             />
                             <div>
                               <p className="font-mono text-xs text-foreground uppercase tracking-widest">Team {String.fromCharCode(65 + idx)}</p>
@@ -852,9 +873,9 @@ export default function MatchDetailPage() {
                       <span className="ml-auto text-[10px] text-muted-foreground">Full match coverage</span>
                     </div>
                     <div className="relative w-full overflow-hidden border border-border/50">
-                      <img 
-                        src={getAssetUrl((match as any).heatmapUrl)} 
-                        alt="Player heatmap" 
+                      <img
+                        src={getAssetUrl((match as any).heatmapUrl)}
+                        alt="Player heatmap"
                         className="w-full h-auto object-contain"
                         loading="lazy"
                       />

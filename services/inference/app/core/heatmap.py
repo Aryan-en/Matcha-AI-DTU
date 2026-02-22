@@ -15,6 +15,7 @@ import numpy as np
 import logging
 import os
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ H_MATRIX, _ = cv2.findHomography(H_SRC, DST_POLY)
 
 
 def generate_heatmap(track_frames: list, output_path: str,
-                     team_colors_rgb: list | None = None) -> bool:
+                     team_colors_rgb: Optional[List] = None) -> bool:
     """
     Build a combined player position heatmap PNG from YOLO tracking data.
 
@@ -72,7 +73,7 @@ def generate_heatmap(track_frames: list, output_path: str,
     # ── Accumulate density grids per team ────────────────────────────────────
     grid_a = np.zeros((PITCH_H, PITCH_W), dtype=np.float32)
     grid_b = np.zeros((PITCH_H, PITCH_W), dtype=np.float32)
-    ball_positions: list[tuple[int, int]] = []
+    ball_positions: List[Tuple[int, int]] = []
 
     for tf in track_frames:
         for p in tf.get("p", []):
@@ -233,7 +234,7 @@ def estimate_ball_speed(track_frames: list, fps: float) -> float:
     if not track_frames or fps <= 0:
         return 0.0
 
-    positions: list[tuple[float, float, float]] = []  # (t, cx_norm, cy_norm)
+    positions: List[Tuple[float, float, float]] = []  # (t, cx_norm, cy_norm)
 
     for tf in track_frames:
         t = float(tf.get("t", 0))

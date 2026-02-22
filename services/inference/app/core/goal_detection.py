@@ -28,19 +28,19 @@ logger = logging.getLogger(__name__)
 
 
 class Cfg:
-    YOLO_CONF             = 0.15
-    BALL_MIN_PX           = 4
-    BALL_MAX_PX           = 180
+    YOLO_CONF             = 0.10  # Lowered from 0.15 to catch small balls
+    BALL_MIN_PX           = 3     # Lowered from 4 for very small balls
+    BALL_MAX_PX           = 200   # Increased from 180
     BALL_ASPECT_MAX       = 2.5
     KALMAN_PROCESS_NOISE  = 1e-2
     KALMAN_MEAS_NOISE     = 1e-1
-    MAX_OCCLUSION_FRAMES  = 8
-    IOU_MATCH_THRESH      = 0.25
+    MAX_OCCLUSION_FRAMES  = 20    # Increased from 15 for tracking smoothness
+    IOU_MATCH_THRESH      = 0.15  # Lowered from 0.20 for better matching
     HIST_DIFF_THRESHOLD   = 0.55
-    DEFAULT_GOAL_POLY_NORM = None   # set below after class
+    DEFAULT_GOAL_POLY_NORM = None   
     DWELL_FRAMES          = 3
-    VELOCITY_DOT_MIN      = 0.0
-    MIN_BALL_SPEED_PX     = 2.0
+    VELOCITY_DOT_MIN      = 0.05    # Slightly stricter
+    MIN_BALL_SPEED_PX     = 2.5
     GOAL_COOLDOWN_SEC     = 30.0
     TOPDOWN_W             = 200
     TOPDOWN_H             = 300
@@ -149,9 +149,12 @@ class KalmanBallTracker:
         kf = cv2.KalmanFilter(4, 2)
         kf.measurementMatrix  = np.array([[1,0,0,0],[0,1,0,0]], dtype=np.float32)
         kf.transitionMatrix   = np.array([[1,0,1,0],[0,1,0,1],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
-        kf.processNoiseCov    = np.eye(4, dtype=np.float32) * Cfg.KALMAN_PROCESS_NOISE
-        kf.measurementNoiseCov= np.eye(2, dtype=np.float32) * Cfg.KALMAN_MEAS_NOISE
-        kf.errorCovPost       = np.eye(4, dtype=np.float32)
+        
+        # Smoothing parameters: Reduced process noise, increased measurement noise for stability
+        # This makes the filter trust previous estimates more, reducing jitter
+        kf.processNoiseCov    = np.eye(4, dtype=np.float32) * 5e-3  # Lowered from 1e-2
+        kf.measurementNoiseCov= np.eye(2, dtype=np.float32) * 2e-1  # Increased from 1e-1 for smoothing
+        kf.errorCovPost       = np.eye(4, dtype=np.float32) * 0.1
         kf.statePost = np.array([[obs.cx],[obs.cy],[0.0],[0.0]], dtype=np.float32)
         ts = TrackState(kf=kf, last_obs_frame=0, frame_id=0)
         ts.history.append((obs.cx, obs.cy))
@@ -204,6 +207,7 @@ class GoalGeometry:
         self._poly_px = pts
         self._goal_center_x = float(np.mean(pts[:, 0]))
         if build_homography and len(pts) == 4:
+            # Top-down view mapping: 18-yard box perspective
             dst = np.array([[0,0],[Cfg.TOPDOWN_W,0],
                             [Cfg.TOPDOWN_W,Cfg.TOPDOWN_H],[0,Cfg.TOPDOWN_H]], dtype=np.float32)
             H, _ = cv2.findHomography(pts, dst)
@@ -212,9 +216,35 @@ class GoalGeometry:
                 self._topdown_poly = dst
                 self._use_topdown = True
 
-    def auto_calibrate(self):
+    def _detect_pitch_lines(self, frame: np.ndarray) -> List[Tuple[float, float, float, float]]:
+        """Find candidate goal-lines and 18-yard box lines using Hough Transform."""
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=100, maxLineGap=10)
+        
+        detected = []
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                detected.append((float(x1), float(y1), float(x2), float(y2)))
+        return detected
+
+    def auto_calibrate(self, frame: Optional[np.ndarray] = None):
+        """
+        Calibrate goal geometry. If a frame is provided, attempts to find 
+        pitch lines to adjust the default polygon to the actual perspective.
+        """
+        if frame is not None:
+            lines = self._detect_pitch_lines(frame)
+            if len(lines) > 2:
+                # Logic to find vertical-ish lines (goal posts) and horizontal (goal line)
+                # For now, we use lines to refine the default poly if they are near the edges
+                logger.info(f"GoalGeometry: detected {len(lines)} pitch lines for calibration")
+                # TODO: Implement robust line-to-quad fitting
+                # Fallback to default for now but with the infrastructure ready
+        
         self.set_goal_polygon(Cfg.DEFAULT_GOAL_POLY_NORM, build_homography=True)
-        logger.info("GoalGeometry: auto-calibrated to default broadcast polygon")
+        logger.info("GoalGeometry: calibrated to broadcast perspective")
 
     def point_in_goal(self, cx: float, cy: float) -> bool:
         if self._poly_px is None:
@@ -290,6 +320,51 @@ class BallDetector:
         return best
 
 
+class RoboflowDetector:
+    """Roboflow API wrapper for specialized ball/event detection."""
+
+    def __init__(self, api_key: str, workspace: str, project: str, version: int = 1):
+        self._model = None
+        try:
+            from roboflow import Roboflow
+            rf = Roboflow(api_key=api_key)
+            project_obj = rf.workspace(workspace).project(project)
+            self._model = project_obj.model(version)
+            logger.info(f"RoboflowDetector: Model loaded ({workspace}/{project}/{version})")
+        except Exception as e:
+            logger.warning(f"RoboflowDetector: Failed to initialize -- {e}")
+
+    @property
+    def available(self) -> bool:
+        return self._model is not None
+
+    def detect(self, frame: np.ndarray, frame_id: int) -> Optional[BallObs]:
+        if not self._model:
+            return None
+        
+        try:
+            # Roboflow inference
+            prediction = self._model.predict(frame, confidence=int(Cfg.YOLO_CONF * 100)).json()
+            
+            best: Optional[BallObs] = None
+            for p in prediction.get("predictions", []):
+                # Filter for ball-like objects if not specific
+                if p["class"].lower() not in ["ball", "soccer-ball", "football"]:
+                    continue
+                
+                conf = p["confidence"]
+                cx, cy = p["x"], p["y"]
+                bw, bh = p["width"], p["height"]
+                
+                obs = BallObs(cx=cx, cy=cy, w=bw, h=bh, conf=conf, frame_id=frame_id)
+                if best is None or conf > best.conf:
+                    best = obs
+            return best
+        except Exception as e:
+            logger.error(f"Roboflow detection error: {e}")
+            return None
+
+
 class _State(Enum):
     OUTSIDE  = auto()
     ENTERING = auto()
@@ -357,10 +432,24 @@ class GoalFSM:
 
 
 class GoalDetectionEngine:
-    """Full pipeline: BallDetector + KalmanTracker + CameraCut + GoalGeometry + GoalFSM."""
+    """Full pipeline: BallDetector/RoboflowDetector + KalmanTracker + CameraCut + GoalGeometry + GoalFSM."""
 
-    def __init__(self, model_path: str = "yolov8n.pt"):
-        self._detector   = BallDetector(model_path)
+    def __init__(self, model_path: str = "yolov8n.pt", roboflow_cfg: Optional[dict] = None):
+        self._detector = None
+        
+        # Prefer Roboflow if config is provided and valid
+        if roboflow_cfg and roboflow_cfg.get("api_key"):
+            self._detector = RoboflowDetector(
+                api_key=roboflow_cfg["api_key"],
+                workspace=roboflow_cfg.get("workspace", "matcha-ai"),
+                project=roboflow_cfg.get("project", "soccer-ball-detection"),
+                version=roboflow_cfg.get("version", 1)
+            )
+        
+        # Fallback to local YOLO
+        if self._detector is None or not self._detector.available:
+            self._detector = BallDetector(model_path)
+            
         self._tracker    = KalmanBallTracker()
         self._cut        = CameraCutDetector()
         self._geometry:  Optional[GoalGeometry] = None

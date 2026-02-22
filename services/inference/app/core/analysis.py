@@ -2,10 +2,18 @@
 import logging
 import requests
 import os
+
+# Ensure ~/bin is on PATH for ffmpeg and other local binaries
+_home_bin = os.path.join(os.path.expanduser("~"), "bin")
+if _home_bin not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = _home_bin + os.pathsep + os.environ.get("PATH", "")
+
 import numpy as np
 import torch
-
+import subprocess
+import tempfile
 from pathlib import Path
+from typing import List, Optional, Tuple, Dict, Union, Counter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,6 +71,15 @@ CONFIG = {
     "GOAL_DETECTION_MIN_SIZE": 10,  # Min ball bbox size in pixels
     "GOAL_DETECTION_MAX_SIZE": 200,  # Max ball bbox size in pixels
     "GOAL_DETECTION_CONFIDENCE_THRESHOLD": 0.5,  # Goal confidence threshold
+    # ── Roboflow API Settings ─────────────────────────────────────────────
+    "ROBOFLOW_API_KEY": os.getenv("ROBOFLOW_API_KEY"),
+    "ROBOFLOW_WORKSPACE": os.getenv("ROBOFLOW_WORKSPACE", "matcha-ai"),
+    "ROBOFLOW_PROJECT": os.getenv("ROBOFLOW_PROJECT", "soccer-ball-detection"),
+    "ROBOFLOW_VERSION": int(os.getenv("ROBOFLOW_VERSION", "1")),
+    # ── Live Stream Parameters ────────────────────────────────────────────
+    "STREAM_BUFFER_SIZE": 15,  # Seconds to buffer before checking for events
+    "STREAM_MAX_IDLE_SECS": 300,  # Auto-stop after 5 mins of no frames
+    "LIVE_EMIT_INTERVAL_SECS": 1.0, # How often to update progress/status
 }
 
 # ── Heatmap & Speed analytics ───────────────────────────────────────────────
@@ -85,6 +102,17 @@ except ImportError as e:
     logger.warning(f"Goal Detection not available: {e}")
     GOAL_DETECTION_AVAILABLE = False
     GoalDetectionEngine = None
+
+# ── Goalpost Detection (for spatial awareness) ────────────────────────────────
+try:
+    from app.core.goalpost_detection import GoalpostDetector, GoalpostTracker
+    GOALPOST_DETECTION_AVAILABLE = True
+    logger.info("Goalpost Detection module loaded ✓")
+except ImportError as e:
+    logger.warning(f"Goalpost Detection not available: {e}")
+    GOALPOST_DETECTION_AVAILABLE = False
+    GoalpostDetector = None
+    GoalpostTracker = None
 
 # ── SoccerNet (football-specific event detection) ────────────────────────────
 try:
@@ -132,126 +160,24 @@ except Exception as e:
     logger.warning(f"Could not add safe globals: {e}")
     from ultralytics import YOLO
 
-# ── Gemini (used only for NLP: commentary text generation & match summary) ───
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    logger.warning("GEMINI_API_KEY not set — Gemini features will be unavailable")
-_gemini_model = None
-_gemini_vision_model = None
+from app.core.llm import (
+    analyze_frame_with_vision, 
+    generate_commentary, 
+    generate_match_summary, 
+    _get_gemini
+)
+from app.core.tts import tts_generate, get_tts_available as _get_tts
+from app.core.video_utils import (
+    generate_silent_audio as _generate_silent_audio, 
+    create_highlight_reel, 
+    precompress_video as _precompress_video
+)
 
 
-def _get_gemini():
-    global _gemini_model
-    if _gemini_model is None:
-        if not GEMINI_API_KEY:
-            logger.warning("Gemini API key not configured")
-            _gemini_model = False
-            return None
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
-            _gemini_model = genai.GenerativeModel("gemini-2.5-flash")
-            logger.info("Gemini 2.5 Flash loaded ✓")
-        except Exception as e:
-            logger.warning(f"Gemini unavailable: {e}")
-            _gemini_model = False
-    return _gemini_model if _gemini_model else None
-
-
-def _get_gemini_vision():
-    """Get Gemini model configured for vision tasks."""
-    global _gemini_vision_model
-    if _gemini_vision_model is None:
-        if not GEMINI_API_KEY:
-            logger.warning("Gemini API key not configured")
-            _gemini_vision_model = False
-            return None
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
-            _gemini_vision_model = genai.GenerativeModel("gemini-2.5-flash")
-            logger.info("Gemini Vision loaded ✓")
-        except Exception as e:
-            logger.warning(f"Gemini Vision unavailable: {e}")
-            _gemini_vision_model = False
-    return _gemini_vision_model if _gemini_vision_model else None
-
-
+# Logic moved to app.core.llm
 def _frame_to_pil(frame):
-    """Convert OpenCV BGR frame to PIL RGB Image."""
-    from PIL import Image
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return Image.fromarray(rgb)
-
-
-def analyze_frame_with_vision(frame, timestamp: float, context: str = "") -> dict:
-    """
-    Use Gemini Vision to analyze a video frame and detect football events.
-    
-    Returns: {"event_type": "GOAL"|"SAVE"|"TACKLE"|"FOUL"|"CELEBRATION"|"NONE", 
-              "confidence": 0.0-1.0, "description": str}
-    """
-    gemini = _get_gemini_vision()
-    if not gemini:
-        return {"event_type": "NONE", "confidence": 0.0, "description": "Vision AI unavailable"}
-    
-    try:
-        pil_image = _frame_to_pil(frame)
-        
-        prompt = """Analyze this football/soccer video frame. Determine if a significant game event is happening.
-
-IMPORTANT: Be STRICT. Only classify as an event if you're confident it's actually happening in this frame.
-
-Event types to look for:
-- GOAL: Ball clearly entering/in the goal net, or immediate celebration after scoring
-- SAVE: Goalkeeper making a save, diving, catching or deflecting the ball
-- TACKLE: Clear physical challenge between players for the ball
-- FOUL: Player being fouled, falling unnaturally, referee intervention
-- CELEBRATION: Players clearly celebrating (arms raised, hugging, jumping)
-- NONE: Regular gameplay, nothing significant, unclear, or can't determine
-
-Respond in this exact format (one line):
-EVENT_TYPE|CONFIDENCE|DESCRIPTION
-
-Where:
-- EVENT_TYPE is one of: GOAL, SAVE, TACKLE, FOUL, CELEBRATION, NONE
-- CONFIDENCE is a number from 0.0 to 1.0 (be conservative - use < 0.5 if unsure)
-- DESCRIPTION is a brief 5-10 word description of what you see
-
-Examples:
-GOAL|0.9|Ball in net, goalkeeper beaten, players celebrating nearby
-NONE|0.8|Regular midfield play, ball being passed
-TACKLE|0.7|Defender sliding in to win the ball
-"""
-        
-        response = gemini.generate_content([prompt, pil_image])
-        text = response.text.strip()
-        
-        # Parse response
-        parts = text.split("|")
-        if len(parts) >= 3:
-            event_type = parts[0].strip().upper()
-            if event_type not in ["GOAL", "SAVE", "TACKLE", "FOUL", "CELEBRATION", "NONE"]:
-                event_type = "NONE"
-            try:
-                confidence = float(parts[1].strip())
-                confidence = max(0.0, min(1.0, confidence))
-            except:
-                confidence = 0.3
-            description = "|".join(parts[2:]).strip()
-            
-            return {
-                "event_type": event_type,
-                "confidence": confidence,
-                "description": description
-            }
-        else:
-            logger.warning(f"Vision AI returned unexpected format: {text}")
-            return {"event_type": "NONE", "confidence": 0.0, "description": text[:100]}
-            
-    except Exception as e:
-        logger.warning(f"Vision analysis failed: {e}")
-        return {"event_type": "NONE", "confidence": 0.0, "description": str(e)[:50]}
+    from app.core.llm import _frame_to_pil as f2p
+    return f2p(frame)
 
 
 def validate_candidate_moment(cap, timestamp: float, fps: float, duration: float) -> dict:
@@ -408,278 +334,12 @@ def find_motion_peaks(motion_windows: list, threshold: float = None, min_gap: fl
 
 
 # ── FFmpeg helpers ───────────────────────────────────────────────────────────
-def _generate_silent_audio(output_path: str, duration: float = 10.0) -> bool:
-    """Generate silent stereo MP3 audio using FFmpeg."""
-    try:
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:d={duration}",
-            "-t", str(duration), "-q:a", "9", "-acodec", "libmp3lame",
-            output_path
-        ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if result.returncode != 0:
-            logger.warning(f"FFmpeg silent audio generation failed: {result.stderr.decode('utf-8', errors='ignore')[:200]}")
-            return False
-        return True
-    except Exception as e:
-        logger.error(f"Failed to generate silent audio: {e}")
-        return False
-
-
-# ── TTS: 3-tier system — Kokoro > edge-tts > silence ────────────────────────
-# Tier 1: Kokoro-82M (hexgrad/Kokoro-82M) — #1 ranked in TTS-Spaces-Arena
-#          Called via HuggingFace Inference API. Needs HF_TOKEN env var.
-# Tier 2: Microsoft edge-tts neural voice (no key, always available)
-# Tier 3: Silent audio (absolute fallback via FFmpeg)
-
-_KOKORO_MODEL   = "hexgrad/Kokoro-82M"         # HF repo (Gradio Space backed)
-_KOKORO_VOICE   = "af_sky"                      # British female, great for sports
-_EDGE_TTS_VOICE = "en-GB-RyanNeural"            # British male broadcaster fallback
-_HF_API_URL     = "https://api-inference.huggingface.co/models"
-
-_hf_token: str | None = os.getenv("HF_TOKEN")  # optional; raises rate limits
-
-
-def _kokoro_tts(text: str, output_path: str) -> bool:
-    """
-    Generate speech via the Kokoro-82M model on HuggingFace Inference API.
-    Requires `huggingface_hub` installed and optionally HF_TOKEN env var.
-    Returns True on success.
-    """
-    try:
-        from huggingface_hub import InferenceClient  # type: ignore
-
-        client = InferenceClient(
-            provider="hf-inference",
-            api_key=_hf_token or "hf_anonymous",
-        )
-        # The TTS task returns raw audio bytes (WAV)
-        audio_bytes = client.text_to_speech(
-            text,
-            model=_KOKORO_MODEL,
-        )
-        if not audio_bytes:
-            logger.warning("Kokoro TTS returned empty response")
-            return False
-
-        # Determine if we got bytes or a file-like object
-        raw = audio_bytes if isinstance(audio_bytes, (bytes, bytearray)) else audio_bytes.read()
-        if len(raw) < 100:  # sanity check
-            logger.warning(f"Kokoro TTS audio too small ({len(raw)} bytes)")
-            return False
-
-        with open(output_path, "wb") as f:
-            f.write(raw)
-        logger.info(f"[TTS Tier-1] Kokoro-82M generated: {output_path}")
-        return True
-
-    except ImportError:
-        logger.warning("huggingface_hub not installed — skipping Kokoro TTS")
-        return False
-    except Exception as e:
-        logger.warning(f"Kokoro TTS failed ({type(e).__name__}): {e}")
-        return False
-
-
-def _edge_tts(text: str, output_path: str) -> bool:
-    """Generate TTS using Microsoft edge-tts neural voice."""
-    try:
-        import asyncio
-        import edge_tts  # type: ignore
-
-        async def _synth():
-            communicate = edge_tts.Communicate(text, _EDGE_TTS_VOICE)
-            await communicate.save(output_path)
-
-        asyncio.run(_synth())
-        logger.info(f"[TTS Tier-2] edge-tts generated: {output_path}")
-        return True
-    except ImportError:
-        logger.warning("edge-tts not installed")
-        return False
-    except Exception as e:
-        logger.warning(f"edge-tts failed: {e}")
-        return False
-
-
-def _get_tts():
-    """Check at least one TTS backend is available."""
-    try:
-        import edge_tts  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
-def tts_generate(text: str, output_path: str) -> bool:
-    """
-    Generate TTS audio — tries Kokoro first, falls back to edge-tts.
-    Both produce high-quality neural voices suitable for sports commentary.
-    """
-    # Tier 1 — Kokoro-82M (best quality, requires huggingface_hub)
-    if _kokoro_tts(text, output_path):
-        return True
-
-    # Tier 2 — Microsoft edge-tts (reliable, no key needed)
-    if _edge_tts(text, output_path):
-        return True
-
-    # Both failed
-    logger.error("All TTS backends failed")
-    return False
+# TTS logic moved to app.core.tts
 
 import subprocess
 import tempfile
 
-def create_highlight_reel(video_path: str, highlights: list, match_id: str, output_dir: str) -> str:
-    """Generate TTS audio, mix with music/crowd, add overlays, and concatenate into one reel."""
-    temp_clips = []
-    
-    music_path = str(MUSIC_DIR / "music.mp3")
-    crowd_path = str(MUSIC_DIR / "crowd.mp3")
-    
-    # Ensure dummy audio files exist if not mounted
-    if not os.path.exists(music_path):
-        os.makedirs(os.path.dirname(music_path), exist_ok=True)
-        if not _generate_silent_audio(music_path, duration=10.0):
-            logger.warning(f"Could not generate music file at {music_path}")
-    if not os.path.exists(crowd_path):
-        if not _generate_silent_audio(crowd_path, duration=10.0):
-            logger.warning(f"Could not generate crowd audio file at {crowd_path}")
-
-    for i, h in enumerate(highlights):
-        start = h["startTime"]
-        end = h["endTime"]
-        text = h.get("commentary", "")
-        event_type = h.get("eventType", "Highlight")
-        duration = end - start
-        
-        clip_path = os.path.join(output_dir, f"temp_clip_{match_id}_{i}.mp4")
-        audio_path = os.path.join(output_dir, f"temp_audio_{match_id}_{i}.wav")
-        
-        has_audio = False
-        if text:
-            has_audio = tts_generate(text, audio_path)
-
-        # Build complex filter
-        # Video: drawtext scrolling right to left, fade in, fade out
-        v_filter = f"[0:v]drawtext=text='Matcha AI Broadcast - {event_type}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.6:boxborderw=5:x=w-mod(t*150\\,w+tw):y=40,fade=t=in:st=0:d=1,fade=t=out:st={duration-1}:d=1[v];"
-        
-        # Check if video has audio (skip if ffprobe unavailable)
-        has_video_audio = False
-        try:
-            # Validate ffprobe is available
-            subprocess.run(["ffprobe", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2)
-            probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "default=nw=1:nk=1", video_path]
-            probe_out = subprocess.check_output(probe_cmd, timeout=5).decode("utf-8").strip()
-            has_video_audio = "audio" in probe_out
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            logger.debug("ffprobe unavailable, assuming no audio")
-        except Exception as e:
-            logger.debug(f"Audio detection failed: {e}")
-
-        # Build ffmpeg command inputs
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(start), "-to", str(end), "-i", video_path
-        ]
-        
-        input_idx = 1
-        audio_inputs = []
-        a_filter = ""
-        
-        if has_video_audio:
-            a_filter += f"[0:a]volume=0.3[a0];"
-            audio_inputs.append("[a0]")
-        else:
-            # Add silent audio input
-            cmd.extend(["-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:d={duration}"])
-            a_filter += f"[{input_idx}:a]volume=0.0[a0];"
-            audio_inputs.append("[a0]")
-            input_idx += 1
-            
-        if has_audio:
-            cmd.extend(["-i", audio_path])
-            a_filter += f"[{input_idx}:a]volume=1.5[a1];"
-            audio_inputs.append("[a1]")
-            input_idx += 1
-            
-        cmd.extend(["-stream_loop", "-1", "-i", crowd_path])
-        a_filter += f"[{input_idx}:a]volume=0.3[a2];"
-        audio_inputs.append("[a2]")
-        input_idx += 1
-        
-        cmd.extend(["-stream_loop", "-1", "-i", music_path])
-        a_filter += f"[{input_idx}:a]volume=0.15[a3];"
-        audio_inputs.append("[a3]")
-        input_idx += 1
-        
-        # Mix all audio inputs
-        inputs_str = "".join(audio_inputs)
-        a_filter += f"{inputs_str}amix=inputs={len(audio_inputs)}:duration=first:normalize=0,afade=t=in:st=0:d=1,afade=t=out:st={duration-1}:d=1[a]"
-
-        cmd.extend([
-            "-filter_complex", v_filter + a_filter,
-            "-map", "[v]", "-map", "[a]",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-            "-c:a", "aac", "-ac", "2", "-shortest",
-            clip_path
-        ])
-        
-        try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
-            if result.returncode == 0:
-                temp_clips.append(clip_path)
-            else:
-                stderr_msg = result.stderr.decode('utf-8', errors='ignore')[:300]
-                logger.error(f"FFmpeg clip {i} failed (code {result.returncode}): {stderr_msg}")
-        except subprocess.TimeoutExpired:
-            logger.error(f"FFmpeg clip {i} timeout after 120s")
-        except Exception as e:
-            logger.error(f"FFmpeg clip {i} error: {e}")
-            
-        if has_audio and os.path.exists(audio_path):
-            os.remove(audio_path)
-
-    if not temp_clips:
-        return None
-
-    # Concatenate all clips
-    reel_filename = f"highlight_reel_{match_id}.mp4"
-    reel_path = os.path.join(output_dir, reel_filename)
-    list_path = os.path.join(output_dir, f"concat_list_{match_id}.txt")
-    
-    with open(list_path, "w") as f:
-        for clip in temp_clips:
-            f.write(f"file '{clip}'\n")
-            
-    concat_cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path,
-        "-c", "copy", reel_path
-    ]
-    
-    try:
-        result = subprocess.run(concat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-        if result.returncode != 0:
-            stderr_msg = result.stderr.decode('utf-8', errors='ignore')[:300]
-            logger.error(f"FFmpeg concat failed (code {result.returncode}): {stderr_msg}")
-            return None
-    except subprocess.TimeoutExpired:
-        logger.error("FFmpeg concat timeout after 60s")
-        return None
-    except Exception as e:
-        logger.error(f"FFmpeg concat error: {e}")
-        return None
-        
-    # Cleanup temp files
-    for clip in temp_clips:
-        if os.path.exists(clip):
-            os.remove(clip)
-    if os.path.exists(list_path):
-        os.remove(list_path)
-        
-    return f"/uploads/{reel_filename}"
+# Highlight logic moved to app.core.video_utils
 
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:4000/api/v1")
@@ -698,14 +358,14 @@ YOLO_TRACK_CLASSES = {"sports ball", "person"}
 YOLO_TYPE_MAP = {"sports ball": "GOAL", "person": "TACKLE"}
 
 # Per-class minimum YOLO confidence thresholds (for tracking visualization)
-MIN_CONF: dict[str, float] = {
+MIN_CONF: Dict[str, float] = {
     "sports ball": 0.30,   # small + blurry → lower threshold
     "person":      0.50,   # for player tracking
 }
 
 # ── Minimum gap between events of the same type (seconds) ────────────────────
 # Used by Vision AI event detection phase
-MODEL_MIN_GAP: dict[str, float] = {
+MODEL_MIN_GAP: Dict[str, float] = {
     "GOAL":        5.0,
     "TACKLE":     45.0,
     "SAVE":       20.0,
@@ -787,85 +447,11 @@ def _fallback_commentary(event_type, final_score, timestamp, duration):
 
 
 # ── Gemini commentary ─────────────────────────────────────────────────────────
-def generate_commentary(event_type, final_score, timestamp, duration, context_events=None):
-    """Single vivid commentary sentence via Gemini, fallback to template."""
-    minute   = max(1, int(timestamp / 60))
-    late     = duration > 0 and (timestamp / duration) > 0.85
-    energy   = "HIGH INTENSITY" if final_score >= 7.5 else ("MODERATE" if final_score >= 5 else "low key")
-    late_str = "in the dying minutes (CRUCIAL late-game moment!)" if late else f"at minute {minute}"
-    ctx_str  = ""
-    if context_events:
-        near = [e for e in context_events if abs(e["timestamp"] - timestamp) < 60]
-        if near:
-            ctx_str = " Nearby events: " + ", ".join(e["type"] for e in near[:3]) + "."
-
-    prompt = (
-        f"You are an incredibly passionate and energetic football/soccer commentator. "
-        f"Write a thrilling, continuous commentary script (around 40-60 words) describing a {event_type} "
-        f"{late_str}. The intensity is {energy} (score {final_score:.1f}/10).{ctx_str} "
-        f"Make it sound like a live broadcast, building up excitement, describing the build-up, the moment itself, "
-        f"and the immediate aftermath. No quotes, no attribution, just the spoken words."
-    )
-    gemini = _get_gemini()
-    if gemini:
-        try:
-            resp = gemini.generate_content(prompt)
-            text = resp.text.strip().strip('"').strip("'")
-            if text:
-                return text
-        except Exception as e:
-            logger.warning(f"Gemini commentary error: {e}")
-    return _fallback_commentary(event_type, final_score, timestamp, duration)
+# Commentary logic moved to app.core.llm
 
 
 # ── Gemini match summary ──────────────────────────────────────────────────────
-def generate_match_summary(scored_events, highlights, duration):
-    """3-5 sentence AI narrative summary of the whole match."""
-    if not scored_events:
-        return "No significant events were detected in this match footage."
-
-    by_type: dict = {}
-    for e in scored_events:
-        by_type[e["type"]] = by_type.get(e["type"], 0) + 1
-
-    top5  = sorted(scored_events, key=lambda x: x["finalScore"], reverse=True)[:5]
-    tdesc = "; ".join(
-        f"{e['type']} at {int(e['timestamp']//60)}:{int(e['timestamp']%60):02d} (score {e['finalScore']:.1f})"
-        for e in top5
-    )
-    stats = ", ".join(f"{v} {k.lower()}s" for k, v in by_type.items())
-    dur_m = int(duration // 60)
-
-    prompt = (
-        f"You are a football analyst AI. Write a 3-5 sentence match summary for a {dur_m}-minute match.\n"
-        f"Event breakdown: {stats}.\n"
-        f"Top 5 moments: {tdesc}.\n"
-        f"Total events: {len(scored_events)} | Highlights: {len(highlights)}.\n"
-        f"Use present tense, analytical but engaging. Describe match narrative — intense phases, "
-        f"key moments, overall character. Don't invent player names or exact scorelines."
-    )
-    gemini = _get_gemini()
-    if gemini:
-        try:
-            resp = gemini.generate_content(prompt)
-            text = resp.text.strip()
-            if text:
-                return text
-        except Exception as e:
-            logger.warning(f"Gemini summary error: {e}")
-
-    goals   = by_type.get("GOAL", 0)
-    saves   = by_type.get("SAVE", 0)
-    tackles = by_type.get("TACKLE", 0)
-    fouls   = by_type.get("FOUL", 0)
-    half    = "second half" if duration > 0 and top5[0]["timestamp"] / duration > 0.5 else "first half"
-    return (
-        f"A {dur_m}-minute match featuring {len(scored_events)} detected events. "
-        f"The game produced {goals} goal(s), {saves} save(s), {tackles} tackle(s), and {fouls} foul(s). "
-        f"The top moment scored {top5[0]['finalScore']:.1f}/10 — "
-        f"a {top5[0]['type']} at minute {int(top5[0]['timestamp']//60)}. "
-        f"Overall intensity peaked in the {half}."
-    )
+# Summary logic moved to app.core.llm
 
 
 # ── Highlight selection ───────────────────────────────────────────────────────
@@ -929,7 +515,7 @@ def _crop_jersey(frame: np.ndarray, x1: float, y1: float, x2: float, y2: float) 
     return crop if crop.size else np.array([])
 
 
-def _dominant_colour(crop: np.ndarray) -> list[int] | None:
+def _dominant_colour(crop: np.ndarray) -> Optional[List[int]]:
     """Return [R, G, B] dominant colour of a BGR crop via median."""
     if crop is None or crop.size < 3:
         return None
@@ -995,56 +581,14 @@ def emit_live_event(match_id: str, event: dict):
         pass
 
 
-def _precompress_video(video_path: str, match_id: str) -> str:
-    if not video_path or not isinstance(video_path, str):
-        raise ValueError("Invalid video_path")
-    if not match_id or not isinstance(match_id, str):
-        raise ValueError("Invalid match_id")
-        
-    try:
-        file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-        threshold_mb = CONFIG["COMPRESS_SIZE_THRESHOLD_MB"]
-        
-        if file_size_mb < threshold_mb:
-            return video_path
-            
-        logger.info(f"Pre-compressing video ({file_size_mb:.0f}MB) for faster analysis...")
-        
-        output_dir = Path(video_path).parent
-        compressed_path = str(output_dir / f"compressed_{match_id}.mp4")
-        
-        cmd = [
-            "ffmpeg", "-y", "-i", video_path,
-            "-vf", f"scale=-2:{CONFIG['COMPRESS_OUTPUT_HEIGHT']},fps={CONFIG['COMPRESS_OUTPUT_FPS']}",
-            "-c:v", "libx264", "-crf", "28", "-preset", "ultrafast",
-            "-an",
-            compressed_path
-        ]
-        
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=CONFIG["FFMPEG_COMPRESS_TIMEOUT"])
-        
-        if result.returncode == 0 and os.path.exists(compressed_path):
-            compressed_size = os.path.getsize(compressed_path) / (1024 * 1024)
-            reduction_pct = 100 - (compressed_size / file_size_mb * 100) if file_size_mb > 0 else 0
-            logger.info(f"Compressed: {file_size_mb:.0f}MB → {compressed_size:.0f}MB ({reduction_pct:.0f}% reduction)")
-            return compressed_path
-        else:
-            logger.warning(f"FFmpeg compression failed, using original")
-            return video_path
-            
-    except subprocess.TimeoutExpired:
-        logger.warning(f"Pre-compression timeout, using original")
-        return video_path
-    except Exception as e:
-        logger.warning(f"Pre-compression failed: {e}")
-        return video_path
+# Compression logic moved to app.core.video_utils
 
 
-def _download_youtube_video(url: str, match_id: str) -> str:
+def _download_youtube_video(url: str, match_id: str, start_time: Optional[float] = None, end_time: Optional[float] = None) -> str:
     """Download YouTube video using yt-dlp to UPLOADS_DIR."""
     import yt_dlp
     
-    logger.info(f"Downloading YouTube video: {url}")
+    logger.info(f"Downloading YouTube video: {url} (range: {start_time}-{end_time})")
     # Force mp4 and limit resolution to 720p or 1080p for speed
     out_tmpl = str(UPLOADS_DIR / f"{match_id}_yt.%(ext)s")
     
@@ -1086,13 +630,17 @@ def _download_youtube_video(url: str, match_id: str) -> str:
             except:
                 pass
 
+    # If range is specified, use it. Otherwise default to first 30 mins (1800s) as a safety cap.
+    start = start_time if start_time is not None else 0
+    end = end_time if end_time is not None else 10800 # 3 hours max if not specified
+    
     ydl_opts = {
         'format': 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': out_tmpl,
         'quiet': False,
         'no_warnings': True,
         'merge_output_format': 'mp4',
-        'download_ranges': download_range_func(None, [(0, 1800)]), # Only download first 30 minutes
+        'download_ranges': download_range_func(None, [(start, end)]),
         'force_keyframes_at_cuts': True,
         'progress_hooks': [progress_hook],
     }
@@ -1140,8 +688,14 @@ def detect_goals_in_video(video_path: str) -> list:
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Initialize goal detector
-        goal_engine = GoalDetectionEngine()
+        # Initialize goal detector with Roboflow support
+        rf_cfg = {
+            "api_key": CONFIG["ROBOFLOW_API_KEY"],
+            "workspace": CONFIG["ROBOFLOW_WORKSPACE"],
+            "project": CONFIG["ROBOFLOW_PROJECT"],
+            "version": CONFIG["ROBOFLOW_VERSION"]
+        }
+        goal_engine = GoalDetectionEngine(roboflow_cfg=rf_cfg)
         goal_engine.init(frame_width, frame_height, fps)
         
         logger.info(f"Goal detection: {frame_width}×{frame_height} @ {fps:.1f}fps")
@@ -1192,19 +746,19 @@ def detect_goals_in_video(video_path: str) -> list:
 
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
-def analyze_video(video_path: str, match_id: str):
+def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = None, end_time: Optional[float] = None, language: str = "english", aspect_ratio: str = "16:9"):
     if not match_id or not isinstance(match_id, str):
         logger.error("Invalid match_id")
         return {"error": "Invalid match_id"}
         
-    logger.info(f"Starting analysis: match={match_id}, source={video_path}")
+    logger.info(f"Starting analysis: match={match_id}, source={video_path}, range={start_time}-{end_time}")
     
     # 1. Download if it's a YouTube URL
     if video_path.startswith("http://") or video_path.startswith("https://"):
         try:
             # Emit progress indicating we are downloading
             requests.post(f"{ORCHESTRATOR_URL}/matches/{match_id}/progress", json={"progress": 5}, timeout=3)
-            video_path = _download_youtube_video(video_path, match_id)
+            video_path = _download_youtube_video(video_path, match_id, start_time=start_time, end_time=end_time)
         except Exception as e:
             logger.error(str(e))
             _report_failure(match_id)
@@ -1218,7 +772,7 @@ def analyze_video(video_path: str, match_id: str):
     
     # Pre-compress large videos for faster processing
     original_video_path = video_path
-    video_path = _precompress_video(video_path, match_id)
+    video_path = _precompress_video(video_path, match_id, CONFIG)
     compressed = (video_path != original_video_path)
     
     try:
@@ -1232,7 +786,8 @@ def analyze_video(video_path: str, match_id: str):
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         frame_w      = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))  or 640
         frame_h      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
-        duration     = total_frames / fps if fps > 0 else 0.0
+        duration     = total_frames / fps if (fps > 0 and total_frames > 0) else 0.0
+        is_stream    = (total_frames <= 0)
         
         # If we pre-compressed to 1fps, adjust settings
         if compressed:
@@ -1258,16 +813,36 @@ def analyze_video(video_path: str, match_id: str):
         jersey_colours: list = []   # [[R,G,B], ...] one per sampled person crop
         frame_person_rows: list = []  # parallel to track_frames, raw persons before team assignment
 
-        # ── GoalDetectionEngine (Kalman + Homography + FSM) ───────────────────────
+        # Initialize Goal Detection Engine
         _goal_engine = None
         if GOAL_DETECTION_AVAILABLE and GoalDetectionEngine:
             try:
-                _goal_engine = GoalDetectionEngine()
+                rf_cfg = {
+                    "api_key": CONFIG["ROBOFLOW_API_KEY"],
+                    "workspace": CONFIG["ROBOFLOW_WORKSPACE"],
+                    "project": CONFIG["ROBOFLOW_PROJECT"],
+                    "version": CONFIG["ROBOFLOW_VERSION"]
+                }
+                _goal_engine = GoalDetectionEngine(roboflow_cfg=rf_cfg)
                 _goal_engine.init(frame_w, frame_h, fps)
                 logger.info("GoalDetectionEngine initialised ✓")
             except Exception as _ge:
                 logger.warning(f"GoalDetectionEngine init failed: {_ge}")
                 _goal_engine = None
+
+        # Initialize Goalpost Detection
+        _goalpost_detector = None
+        _goalpost_tracker = None
+        goalpost_detections: list = []
+        if GOALPOST_DETECTION_AVAILABLE and GoalpostDetector and GoalpostTracker:
+            try:
+                _goalpost_detector = GoalpostDetector()
+                _goalpost_tracker = GoalpostTracker(max_distance=100.0)
+                logger.info("GoalpostDetector initialised ✓")
+            except Exception as _gpe:
+                logger.warning(f"GoalpostDetector init failed: {_gpe}")
+                _goalpost_detector = None
+                _goalpost_tracker = None
 
         # NOTE: raw_events and last_seen are no longer used here
         # Events are now detected via Vision AI after the main loop
@@ -1308,6 +883,24 @@ def analyze_video(video_path: str, match_id: str):
                     "motionScore": m_score,
                     "audioScore":  round(min(m_score * 1.2, 1.0), 3),
                 })
+                
+                # ── Live Event Detection (Sliding Window) ──────────────────
+                # If we are in stream mode or have high intensity, check now
+                if m_score >= CONFIG["MOTION_PEAK_THRESHOLD"]:
+                    # Grab current frame for analysis
+                    analysis_res = analyze_frame_with_vision(frame, timestamp, context=f"Language: {language}")
+                    if analysis_res["event_type"] != "NONE" and analysis_res["confidence"] >= 0.5:
+                        live_evt = {
+                            "timestamp": round(timestamp, 2),
+                            "type": analysis_res["event_type"],
+                            "confidence": round(analysis_res["confidence"], 3),
+                            "commentary": analysis_res.get("description", ""),
+                            "finalScore": round(m_score * 10, 1),
+                            "source": "live_sliding_window"
+                        }
+                        emit_live_event(match_id, live_evt)
+                        logger.info(f"✨ LIVE EVENT: {live_evt['type']} at {live_evt['timestamp']}s")
+
                 window_diffs = []
 
             # ── Progress update ──────────────────────────────────────────────
@@ -1405,6 +998,27 @@ def analyze_video(video_path: str, match_id: str):
                 try:
                     _goal_engine.process_frame(frame)
                 except Exception as _gfe:
+                    logger.debug(f"GoalDetectionEngine error: {_gfe}")
+
+            # ── GoalpostDetector per-frame ────────────────────────────────────
+            if _goalpost_detector is not None and _goalpost_tracker is not None:
+                try:
+                    detection = _goalpost_detector.detect(frame, frame_id=frame_count, timestamp=timestamp)
+                    if detection:
+                        tracked_detection = _goalpost_tracker.update(detection)
+                        if tracked_detection:
+                            goalpost_detections.append({
+                                "frame": frame_count,
+                                "timestamp": round(timestamp, 2),
+                                "center_x": round(tracked_detection.center_x, 1),
+                                "center_y": round(tracked_detection.center_y, 1),
+                                "goal_width": round(tracked_detection.goal_width, 1),
+                                "confidence": round(tracked_detection.confidence, 3),
+                                "has_left": tracked_detection.left is not None,
+                                "has_right": tracked_detection.right is not None,
+                            })
+                except Exception as _gpe:
+                    logger.debug(f"GoalpostDetector error: {_gpe}")
                     logger.debug(f"goal_engine.process_frame error: {_gfe}")
 
             # Store tracking frame on every detection tick (max every track_interval)
@@ -1574,22 +1188,30 @@ def analyze_video(video_path: str, match_id: str):
         for i, ev in enumerate(scored_events):
             ctx = scored_events[max(0, i - 3):i] + scored_events[i + 1:i + 3]
             ev["commentary"] = generate_commentary(
-                ev["type"], ev["finalScore"], ev["timestamp"], duration, ctx
+                ev["type"], ev["finalScore"], ev["timestamp"], duration, ctx, language=language
             )
 
         # ── Highlights (spread, non-overlapping) ─────────────────────────────
         highlights = select_highlights(scored_events, duration)
 
-        # ── Generate Highlight Video Clips with TTS ──────────────────────────
-        logger.info("Generating highlight reel with TTS, music, and crowd noise...")
-        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-        # Use original video for highlight reel (compressed is 1fps)
-        highlight_reel_url = create_highlight_reel(
-            video_path=original_video_path,
-            highlights=highlights,
-            match_id=match_id,
-            output_dir=str(UPLOADS_DIR)
-        )
+        highlight_reel_url = None
+        try:
+            logger.info("Generating highlight reel with TTS, music, and crowd noise...")
+            UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+            # Use original video for highlight reel (compressed is 1fps)
+            highlight_reel_url = create_highlight_reel(
+                video_path=original_video_path,
+                highlights=highlights,
+                match_id=match_id,
+                output_dir=str(UPLOADS_DIR),
+                music_dir=MUSIC_DIR,
+                tracking_data=track_frames,
+                aspect_ratio=aspect_ratio,
+                language=language
+            )
+        except Exception as e:
+            logger.warning(f"Highlight reel generation skipped: {e}")
+
 
         # ── Heatmap Generation ────────────────────────────────────────────────
         heatmap_url = None
@@ -1632,8 +1254,11 @@ def analyze_video(video_path: str, match_id: str):
 
         # ── Gemini match summary ──────────────────────────────────────────────
         logger.info("Generating Gemini match summary…")
-        summary = generate_match_summary(scored_events, highlights, duration)
+        summary = generate_match_summary(scored_events, highlights, duration, language=language)
+        if not summary:
+            summary = f"Match analysis completed. {len(scored_events)} events detected across {round(duration)}s of footage."
         logger.info(f"Summary: {len(summary)} chars")
+
 
         logger.info(
             f"Done: {len(scored_events)} events | {len(highlights)} highlights | "
@@ -1704,6 +1329,7 @@ def analyze_video(video_path: str, match_id: str):
             "heatmapUrl":    heatmap_url,
             "topSpeedKmh":   round(float(top_speed_kmh), 1),
             "videoUrl":      f"http://localhost:4000/uploads/{Path(original_video_path).name}",
+            "goalpostDetections": convert_numpy(goalpost_detections),  # Spatial awareness data
         }
 
         try:

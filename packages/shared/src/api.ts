@@ -57,11 +57,11 @@ export function createApiClient(baseUrl: string) {
         xhr.send(form);
       }),
 
-    uploadYoutube: (url: string): Promise<MatchSummary> =>
+    uploadYoutube: (url: string, startTime?: number, endTime?: number): Promise<MatchSummary> =>
       fetchWithRetry(`${apiBase}/matches/youtube`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, start_time: startTime, end_time: endTime }),
       }).then((r) => {
         if (!r.ok) throw new Error(`YouTube upload failed: ${r.statusText}`);
         return r.json();
@@ -86,7 +86,7 @@ export function createApiClient(baseUrl: string) {
         if (!r.ok) throw new Error(await r.text());
         return r.json();
       }),
-      
+
     getMe: (): Promise<any> =>
       fetchWithRetry(`${apiBase}/auth/me`, {
         method: "GET",
