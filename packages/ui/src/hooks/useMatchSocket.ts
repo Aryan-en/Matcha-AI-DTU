@@ -13,6 +13,7 @@ interface UseMatchSocketOptions {
 export function useMatchSocket({ matchId, url, enabled = true }: UseMatchSocketOptions) {
   const [liveEvents, setLiveEvents] = useState<MatchEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [liveProgress, setLiveProgress] = useState<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -47,6 +48,16 @@ export function useMatchSocket({ matchId, url, enabled = true }: UseMatchSocketO
       });
     });
 
+    socket.on("progress", (payload: { matchId: string; progress: number }) => {
+      if (payload.matchId !== matchId) return;
+      setLiveProgress(payload.progress);
+    });
+
+    socket.on("complete", (payload: { matchId: string }) => {
+      if (payload.matchId !== matchId) return;
+      setLiveProgress(100);
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -55,6 +66,7 @@ export function useMatchSocket({ matchId, url, enabled = true }: UseMatchSocketO
 
   return {
     liveEvents,
+    liveProgress,
     isConnected,
     socket: socketRef.current,
   };

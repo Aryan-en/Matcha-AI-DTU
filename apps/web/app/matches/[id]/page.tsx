@@ -293,6 +293,13 @@ export default function MatchDetailPage() {
   const duration = match.duration ?? 0;
   const goalCount = byType["GOAL"] ?? 0;
   const saveCount = byType["SAVE"] ?? 0;
+  const processingProgress = Math.max(
+    0,
+    Math.min(
+      match.status === "COMPLETED" ? 100 : 99,
+      Math.round(match.progress ?? 0),
+    ),
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -532,6 +539,22 @@ export default function MatchDetailPage() {
                   </div>
                   <span className="font-mono text-xs text-muted-foreground hidden sm:block">{formatTime(currentTime)}</span>
                 </div>
+                {(match.status === "PROCESSING" || match.status === "UPLOADED") && (
+                  <div className="bg-blue-500/5 border border-blue-500/25 px-3 sm:px-4 py-3">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <span className="text-[10px] sm:text-xs uppercase tracking-widest font-bold text-blue-300">
+                        {match.status === "UPLOADED" && processingProgress === 0 ? "Queued for analysis" : "Analysis progress"}
+                      </span>
+                      <span className="font-mono text-xs text-blue-200 tabular-nums">{processingProgress}%</span>
+                    </div>
+                    <div className="h-2 bg-blue-950/50 overflow-hidden rounded-sm">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-500"
+                        style={{ width: `${processingProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {match.emotionScores.length > 0 && (
@@ -612,7 +635,7 @@ export default function MatchDetailPage() {
                       A combined broadcast-style reel with AI commentary, crowd noise, and music.
                     </p>
                     <a
-                      href={match.highlightReelUrl}
+                      href={getAssetUrl(match.highlightReelUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 text-sm font-semibold text-background bg-primary hover:bg-primary/90 px-4 py-2 transition-all uppercase tracking-wide"
@@ -676,7 +699,7 @@ export default function MatchDetailPage() {
                         </button>
                         {h.videoUrl && (
                           <a
-                            href={h.videoUrl}
+                            href={getAssetUrl(h.videoUrl)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-500 px-3 py-1.5 transition-all bg-blue-500/5 hover:bg-blue-500/10 uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"

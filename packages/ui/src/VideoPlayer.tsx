@@ -338,7 +338,7 @@ export function VideoPlayer({
   return (
     <div
       ref={wrapRef}
-      className="flex flex-col bg-zinc-950 rounded-xl overflow-hidden select-none focus:outline-none ring-1 ring-white/10 shadow-2xl"
+      className="flex flex-col bg-zinc-950 rounded-lg sm:rounded-xl overflow-hidden select-none focus:outline-none ring-1 ring-white/10 shadow-2xl"
       tabIndex={0}
     >
       <div className="relative group bg-zinc-900">
@@ -346,7 +346,7 @@ export function VideoPlayer({
           ref={vidRef}
           src={safeSrc}
           crossOrigin="anonymous"
-          className="w-full aspect-video cursor-pointer"
+          className="w-full aspect-video object-contain bg-black cursor-pointer"
           onClick={togglePlay}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
@@ -370,9 +370,9 @@ export function VideoPlayer({
             <motion.div 
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="w-20 h-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-2xl"
+              className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-2xl"
             >
-              <Play className="w-8 h-8 text-white ml-1.5" />
+              <Play className="w-6 h-6 sm:w-8 sm:h-8 text-white ml-1" />
             </motion.div>
           )}
         </div>
@@ -392,8 +392,8 @@ export function VideoPlayer({
           )}
         </AnimatePresence>
 
-        <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-2">
-          <div className={`flex items-center gap-1.5 text-[10px] uppercase font-bold px-2.5 py-1 rounded-full backdrop-blur-md border shadow-lg
+        <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 flex flex-col items-end gap-1.5 sm:gap-2">
+          <div className={`flex items-center gap-1.5 text-[9px] sm:text-[10px] uppercase font-bold px-2 py-1 rounded-full backdrop-blur-md border shadow-lg
             ${modelState === "ready"   ? "bg-emerald-950/60 border-emerald-500/30 text-emerald-400"
             : modelState === "loading" ? "bg-zinc-900/60 border-zinc-700/50 text-zinc-400 animate-pulse"
             : "bg-red-950/60 border-red-500/30 text-red-400"}`}
@@ -403,7 +403,7 @@ export function VideoPlayer({
           </div>
           <button
             onClick={() => setShowTracking(v => !v)}
-            className="group/btn bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/10 text-[10px] font-semibold px-3 py-1.5
+            className="group/btn bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/10 text-[9px] sm:text-[10px] font-semibold px-2.5 sm:px-3 py-1.5
                        rounded-full transition-all backdrop-blur-md flex items-center gap-2 text-white/80 shadow-lg"
           >
             <span className={`w-2 h-2 rounded-full transition-colors ${showTracking ? "bg-primary animate-pulse" : "bg-zinc-600"}`} />
@@ -432,7 +432,7 @@ export function VideoPlayer({
         </div>
       </div>
 
-      <div className="bg-zinc-950 border-t border-white/5 px-4 pt-3 pb-4 space-y-3">
+      <div className="bg-zinc-950 border-t border-white/5 px-3 sm:px-4 pt-3 pb-4 space-y-3">
         <div
           ref={seekRef}
           className="relative h-6 flex items-center cursor-pointer group/seek"
@@ -447,7 +447,7 @@ export function VideoPlayer({
           </div>
 
           <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full
                        bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-transform group-hover/seek:scale-125 z-10"
             style={{ left: `${progressPct}%` }}
           />
@@ -479,52 +479,52 @@ export function VideoPlayer({
           ))}
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3 order-1">
             <button
               onClick={() => seekTo(current - 10)}
               className="text-zinc-500 hover:text-white transition-colors p-1"
             >
-              <SkipBack className="w-5 h-5" />
+              <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
 
             <button
               onClick={togglePlay}
-              className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white text-black flex items-center justify-center
                          hover:bg-zinc-200 transition-all hover:scale-105 active:scale-95 shadow-lg shrink-0"
             >
-              {playing ? <Pause className="w-5 h-5" /> : <Play  className="w-5 h-5 ml-0.5" />}
+              {playing ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play  className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
             </button>
 
             <button
               onClick={() => seekTo(current + 10)}
               className="text-zinc-500 hover:text-white transition-colors p-1"
             >
-              <SkipForward className="w-5 h-5" />
+              <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
 
-          <span className="text-xs font-mono font-bold text-zinc-400 tabular-nums">
+          <span className="text-[11px] sm:text-xs font-mono font-bold text-zinc-400 tabular-nums order-2">
             {formatTime(current)} <span className="text-zinc-700">/</span> {formatTime(duration)}
           </span>
 
-          <div className="flex-1" />
+          <div className="hidden sm:flex flex-1" />
 
-          <div className="flex items-center gap-2 group/volume">
+          <div className="flex items-center gap-2 group/volume order-3">
             <button onClick={toggleMute} className="text-zinc-500 hover:text-white transition-colors">
-              {muted || volume === 0 ? <VolumeX className="w-5 h-5" /> : volume < 0.5 ? <Volume1 className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+              {muted || volume === 0 ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : volume < 0.5 ? <Volume1 className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
             </button>
             <input
               type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume}
               onChange={(e) => onVolumeChange(Number(e.target.value))}
-              className="w-0 group-hover/volume:w-20 transition-all duration-300 h-1 accent-primary cursor-pointer opacity-0 group-hover:opacity-100"
+              className="w-16 sm:w-0 sm:group-hover/volume:w-20 transition-all duration-300 h-1 accent-primary cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
             />
           </div>
 
-          <div className="relative">
+          <div className="relative order-4 ml-auto sm:ml-0">
             <button
               onClick={() => setShowSpeed(v => !v)}
-              className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-zinc-400 hover:text-white
+              className="flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold uppercase text-zinc-400 hover:text-white
                          bg-zinc-900 border border-white/5 hover:border-white/10 px-3 py-1.5 rounded-full transition-all"
             >
               <Gauge className="w-3.5 h-3.5" /> {speed}x
@@ -556,63 +556,13 @@ export function VideoPlayer({
 
           <button
             onClick={toggleFullscreen}
-            className="text-zinc-500 hover:text-white transition-colors p-1"
+            className="text-zinc-500 hover:text-white transition-colors p-1 order-5"
           >
-            {fullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            {fullscreen ? <Minimize className="w-4 h-4 sm:w-5 sm:h-5" /> : <Maximize className="w-4 h-4 sm:w-5 sm:h-5" />}
           </button>
         </div>
       </div>
 
-      <AnimatePresence>
-        {highlights.length > 0 && (
-          <motion.div 
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            className="bg-zinc-950 border-t border-white/5 px-4 py-3 overflow-hidden"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <Film className="w-4 h-4 text-warning" />
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                Key Highlights
-              </span>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
-              {highlights.map((h, i) => {
-                const col = getEventColor(h.eventType ?? "");
-                return (
-                  <motion.button
-                    key={h.id}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => playHighlight(h)}
-                    className="shrink-0 flex flex-col gap-1 bg-zinc-900/40 hover:bg-zinc-900 
-                               border border-white/5 hover:border-primary/30 rounded-2xl
-                               px-4 py-3 text-left transition-all group/hl min-w-[120px] shadow-lg"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black text-zinc-600">0{i + 1}</span>
-                      <span
-                        className="w-2 h-2 rounded-full border border-black/20"
-                        style={{ background: col }}
-                      />
-                    </div>
-                    <span className="font-mono text-[11px] font-bold text-zinc-300">
-                      {formatTime(h.startTime)}
-                    </span>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Play className="w-3 h-3 text-primary group-hover/hl:scale-125 transition-transform" />
-                      <span className="text-[11px] font-bold text-primary">{h.score.toFixed(1)}</span>
-                      {h.commentary && (
-                        <MessageSquare className="ml-auto w-3.5 h-3.5 text-zinc-600" />
-                      )}
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

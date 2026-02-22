@@ -155,8 +155,9 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
             const cfg = STATUS_CONFIG[m.status] ?? STATUS_CONFIG.UPLOADED;
             const isConfirming = confirmId === m.id;
             const isDeleting = deletingId === m.id;
-            const progress = progressMap[m.id] ?? 0;
+            const progress = progressMap[m.id] ?? m.progress ?? 0;
             const isProcessing = m.status === "PROCESSING" || m.status === "UPLOADED";
+            const safeProgress = Math.max(0, Math.min(99, Math.round(progress)));
             
             // Re-map colors to match our theme strictly
             const accentColor = m.status === "COMPLETED" ? "var(--green)" 
@@ -242,7 +243,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                     {/* Main Identity Area */}
                     <Link 
                       href={`/matches/${m.id}`} 
-                      className="flex-1 flex flex-col justify-center px-4 sm:px-6 min-w-0 group/id focus:outline-none"
+                      className="flex-1 flex flex-col justify-center px-4 sm:px-6 py-2 min-w-0 group/id focus:outline-none"
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <div className={`hidden lg:block px-1.5 py-0.5 border font-mono text-[7px] uppercase tracking-[0.1em] font-bold shrink-0 ${cfg.color} ${m.status === 'PROCESSING' ? 'animate-pulse' : ''}`}>
@@ -255,6 +256,24 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
                       <p className="font-mono text-[8px] sm:text-[9px] text-muted-foreground/40 uppercase tracking-widest truncate">
                          {formattedTime} • ID: {m.id.split('-')[0]}
                       </p>
+                      {isProcessing && (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-[8px] uppercase tracking-[0.15em] text-muted-foreground/70">
+                              {m.status === "UPLOADED" && safeProgress === 0 ? "Queued" : "Processing"}
+                            </span>
+                            <span className="font-mono text-[9px] tabular-nums text-blue-300">
+                              {safeProgress}%
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full bg-white/10 overflow-hidden rounded-sm">
+                            <div
+                              className="h-full bg-gradient-to-r from-blue-500 to-cyan-300 transition-all duration-500"
+                              style={{ width: `${safeProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </Link>
                   </div>
 
@@ -362,3 +381,7 @@ export const MatchDashboard = React.memo(function MatchDashboardContent() {
     </div>
   );
 });
+
+
+
+
