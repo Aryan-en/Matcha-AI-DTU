@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient, Match, EventType, Prisma } from "@matcha/database";
+import { PrismaClient, EventType } from "@prisma/client";
+import type { Match, Prisma } from "@matcha/database";
 import { HttpService } from '@nestjs/axios';
 import { EventsGateway } from '../events/events.gateway';
 import { firstValueFrom } from 'rxjs';

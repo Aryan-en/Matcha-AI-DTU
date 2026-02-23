@@ -2,11 +2,10 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
-import { env } from '@matcha/env';
 
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '100mb';
 const URLENCODED_LIMIT = process.env.URLENCODED_BODY_LIMIT || '1mb';
-const PORT = parseInt(env.PORT ?? '4000', 10);
+const PORT = parseInt(process.env.PORT ?? '4000', 10);
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT ?? '30000', 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : [];
 
