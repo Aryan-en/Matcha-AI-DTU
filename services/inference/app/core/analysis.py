@@ -13,7 +13,8 @@ import torch
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict, Union, Counter
+from typing import List, Optional, Tuple, Dict, Union
+from collections import Counter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -152,17 +153,17 @@ except ImportError as e:
 
 # ── YOLO ─────────────────────────────────────────────────────────────────────
 try:
-    from ultralytics import YOLO
-    from ultralytics.nn.tasks import DetectionModel
+    from ultralytics import YOLO  # type: ignore
+    from ultralytics.nn.tasks import DetectionModel  # type: ignore
     # PyTorch 2.6+ requires adding safe globals for model loading
-    if hasattr(torch.serialization, "add_safe_globals"):
+    if hasattr(torch.serialization, "add_safe_globals"):  # type: ignore
         import torch.nn.modules.container
         import torch.nn.modules.conv
         import torch.nn.modules.batchnorm
         import torch.nn.modules.activation
         import torch.nn.modules.pooling
         import torch.nn.modules.upsampling
-        torch.serialization.add_safe_globals([
+        torch.serialization.add_safe_globals([  # type: ignore
             DetectionModel,
             torch.nn.modules.container.Sequential,
             torch.nn.modules.container.ModuleList,
@@ -174,7 +175,7 @@ try:
         ])
 except Exception as e:
     logger.warning(f"Could not add safe globals: {e}")
-    from ultralytics import YOLO
+    from ultralytics import YOLO  # type: ignore
 
 from app.core.llm import (
     analyze_frame_with_vision, 
@@ -254,7 +255,7 @@ def _frame_to_pil(frame):
     return f2p(frame)
 
 
-def validate_candidate_moment(cap, timestamp: float, fps: float, duration: float) -> dict:
+def validate_candidate_moment(cap, timestamp: float, fps: float, duration: float) -> Optional[Dict]:
     """
     Validate a candidate moment by analyzing multiple frames around it.
     Uses majority voting across frames for reliable event classification.
@@ -322,7 +323,7 @@ _vision_failures = 0
 _MAX_VISION_FAILURES = 5  # After this many failures, use fallback
 
 
-def fallback_heuristic_event(motion_score: float, timestamp: float, duration: float) -> dict:
+def fallback_heuristic_event(motion_score: float, timestamp: float, duration: float) -> Optional[Dict]:
     """
     Fallback event detection when Vision AI is unavailable.
     Uses motion score + temporal position to generate generic highlights.
@@ -351,7 +352,7 @@ def fallback_heuristic_event(motion_score: float, timestamp: float, duration: fl
     }
 
 
-def validate_candidate_with_fallback(cap, timestamp: float, fps: float, duration: float, motion_score: float) -> dict:
+def validate_candidate_with_fallback(cap, timestamp: float, fps: float, duration: float, motion_score: float) -> Optional[Dict]:
     """
     Validate a candidate moment, with fallback to heuristics if Vision AI fails.
     """
@@ -380,11 +381,14 @@ def validate_candidate_with_fallback(cap, timestamp: float, fps: float, duration
     return result
 
 
-def find_motion_peaks(motion_windows: list, threshold: float = None, min_gap: float = None) -> list:
+def find_motion_peaks(motion_windows: list, threshold: Optional[float] = None, min_gap: Optional[float] = None) -> list:
     if threshold is None:
         threshold = CONFIG["MOTION_PEAK_THRESHOLD"]
     if min_gap is None:
         min_gap = CONFIG["MOTION_MIN_GAP_SECS"]
+    
+    # Type narrowing - ensure not None
+    assert isinstance(threshold, float) and isinstance(min_gap, float)
         
     if not isinstance(motion_windows, list) or not motion_windows:
         return []
@@ -953,10 +957,10 @@ def _download_youtube_video(url: str, match_id: str, start_time: Optional[float]
                 pass
 
     # If range is specified, use it. Otherwise default to first 30 mins (1800s) as a safety cap.
-    start = start_time if start_time is not None else 0
-    end = end_time if end_time is not None else 10800 # 3 hours max if not specified
+    start = int(start_time) if start_time is not None else 0
+    end = int(end_time) if end_time is not None else 10800 # 3 hours max if not specified
     
-    ydl_opts = {
+    ydl_opts: Dict = {  # type: ignore
         'format': 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': out_tmpl,
         'quiet': False,
@@ -968,7 +972,7 @@ def _download_youtube_video(url: str, match_id: str, start_time: Optional[float]
     }
     
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
             info = ydl.extract_info(url, download=True)
             # Find the actual downloaded filepath (might vary slightly depending on merge)
             dl_path = ydl.prepare_filename(info)
@@ -1371,7 +1375,6 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
                             })
                 except Exception as _gpe:
                     logger.debug(f"GoalpostDetector error: {_gpe}")
-                    logger.debug(f"goal_engine.process_frame error: {_gfe}")
 
             # Store tracking frame on every detection tick (max every track_interval)
             if (processed_count % track_interval == 0) and (frame_balls or frame_persons):
@@ -1580,7 +1583,7 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
         # ── Heatmap Generation ────────────────────────────────────────────────
         heatmap_url = None
         top_speed_kmh = 0.0
-        if HEATMAP_AVAILABLE and track_frames:
+        if HEATMAP_AVAILABLE and generate_heatmap and track_frames:
             try:
                 heatmap_filename = f"heatmap_{match_id}.png"
                 heatmap_path = str(UPLOADS_DIR / heatmap_filename)
@@ -1596,8 +1599,9 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
                 logger.warning(f"Heatmap generation failed: {e}")
 
             try:
-                top_speed_kmh = estimate_ball_speed(track_frames, fps)
-                logger.info(f"Top ball speed: {top_speed_kmh:.1f} km/h")
+                if estimate_ball_speed:
+                    top_speed_kmh = estimate_ball_speed(track_frames, fps)
+                    logger.info(f"Top ball speed: {top_speed_kmh:.1f} km/h")
             except Exception as e:
                 logger.warning(f"Ball speed estimation failed: {e}")
 
@@ -1621,14 +1625,6 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
                 trajectory_data = predict_ball_trajectory(all_balls, fps=process_fps)
                 logger.info(f"Ball trajectory: {trajectory_data.get('direction')} @ {trajectory_data.get('speed')} speed")
         
-        if CONFIG["DYNAMIC_AUDIO_MIXING"] and len(emotion_scores) > 0:
-            logger.info("Calculating dynamic audio volumes...")
-            # Use average emotion score for audio mixing
-            avg_emotion = np.mean([e["finalScore"] for e in emotion_scores])
-            avg_motion = np.mean([e["motionScore"] for e in emotion_scores])
-            audio_volumes = calculate_dynamic_audio_volumes(avg_motion, avg_emotion)
-            logger.info(f"Audio volumes: {audio_volumes}")
-
         # ── Emotion scores ────────────────────────────────────────────────────
         emotion_scores = [
             {
@@ -1643,6 +1639,14 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
             }
             for w in motion_windows
         ]
+
+        if CONFIG["DYNAMIC_AUDIO_MIXING"] and len(emotion_scores) > 0:
+            logger.info("Calculating dynamic audio volumes...")
+            # Use average emotion score for audio mixing
+            avg_emotion = float(np.mean([e["finalScore"] for e in emotion_scores]))
+            avg_motion = float(np.mean([e["motionScore"] for e in emotion_scores]))
+            audio_volumes = calculate_dynamic_audio_volumes(avg_motion, avg_emotion)
+            logger.info(f"Audio volumes: {audio_volumes}")
 
         # ── Gemini match summary ──────────────────────────────────────────────
         logger.info("Generating Gemini match summary…")
@@ -1664,12 +1668,12 @@ def analyze_video(video_path: str, match_id: str, start_time: Optional[float] = 
         )
 
         # Convert numpy types to native Python types for JSON serialization
-        def convert_numpy(obj):
+        def convert_numpy(obj):  # type: ignore
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
-            elif isinstance(obj, (np.float32, np.float64)):
+            elif isinstance(obj, (float, np.floating)):  # type: ignore
                 return float(obj)
-            elif isinstance(obj, (np.int32, np.int64)):
+            elif isinstance(obj, (int, np.integer)):  # type: ignore
                 return int(obj)
             elif isinstance(obj, dict):
                 return {k: convert_numpy(v) for k, v in obj.items()}
