@@ -8,6 +8,7 @@
         "build": "tsc"
     },
     "dependencies": {
+        "@matcha/shared": "*",
         "@matcha/theme": "*",
         "@react-pdf/renderer": "^4.3.2",
         "clsx": "^2.1.1",
