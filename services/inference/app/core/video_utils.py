@@ -10,6 +10,143 @@ from app.core.tts import tts_generate
 
 logger = logging.getLogger(__name__)
 
+# ── Goal celebration overlay asset ──────────────────────────────────────────
+# Path to the green-screen goal animation video.
+# Resolved relative to the workspace root (two levels up from this file).
+_THIS_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _THIS_DIR.parents[2]          # …/Matcha-AI-DTU
+GOAL_OVERLAY_PATH = str(_PROJECT_ROOT / "uploads" / "Goal_1.mp4")
+
+
+def remove_greenscreen(frame: np.ndarray,
+                       lower_green: np.ndarray = np.array([35, 80, 80]),
+                       upper_green: np.ndarray = np.array([85, 255, 255])) -> tuple:
+    """
+    Remove green-screen from a BGR frame.
+    Returns (rgb_frame, alpha_mask) where alpha_mask is 0-255 single-channel.
+    """
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    green_mask = cv2.inRange(hsv, lower_green, upper_green)
+    # Invert: foreground = non-green
+    alpha = cv2.bitwise_not(green_mask)
+    # Soften edges with a small blur to avoid harsh outlines
+    alpha = cv2.GaussianBlur(alpha, (5, 5), 0)
+    return frame, alpha
+
+
+def overlay_goal_animation(clip_path: str, output_path: str,
+                           overlay_video: str = GOAL_OVERLAY_PATH,
+                           position: str = "center",
+                           scale: float = 0.40) -> bool:
+    """
+    Composite a green-screen goal animation on top of an existing highlight clip.
+
+    Parameters
+    ----------
+    clip_path   : path to the base highlight clip (mp4)
+    output_path : where to write the composited clip
+    overlay_video: path to the goal animation with green background
+    position    : "center" | "top-right" | "bottom-center"
+    scale       : overlay size relative to clip width (0.0-1.0)
+
+    Returns True on success.
+    """
+    if not os.path.exists(overlay_video):
+        logger.warning(f"Goal overlay not found at {overlay_video} – skipping")
+        return False
+
+    base_cap = cv2.VideoCapture(clip_path)
+    ovl_cap  = cv2.VideoCapture(overlay_video)
+
+    if not base_cap.isOpened() or not ovl_cap.isOpened():
+        logger.error("Failed to open base or overlay video")
+        return False
+
+    fps    = base_cap.get(cv2.CAP_PROP_FPS) or 30.0
+    bw     = int(base_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    bh     = int(base_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_path, fourcc, fps, (bw, bh))
+
+    ovl_total = int(ovl_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    ovl_fps   = ovl_cap.get(cv2.CAP_PROP_FPS) or 30.0
+    ovl_dur   = ovl_total / ovl_fps if ovl_fps else 0
+
+    # Pre-calculate overlay dimensions
+    ow = int(bw * scale)
+    # We'll compute oh per-frame to preserve aspect ratio
+
+    frame_idx = 0
+    while True:
+        ret, base_frame = base_cap.read()
+        if not ret:
+            break
+
+        # Read overlay frame (loop if overlay is shorter)
+        ret_o, ovl_frame = ovl_cap.read()
+        if not ret_o:
+            # If overlay ended, just write base frames as-is
+            writer.write(base_frame)
+            frame_idx += 1
+            continue
+
+        # ── Chroma-key removal ──────────────────────────────────────────
+        ovl_bgr, alpha = remove_greenscreen(ovl_frame)
+
+        # Resize overlay to target width, keep aspect ratio
+        orig_h, orig_w = ovl_bgr.shape[:2]
+        oh = int(ow * orig_h / orig_w) if orig_w else ow
+        ovl_resized = cv2.resize(ovl_bgr, (ow, oh), interpolation=cv2.INTER_AREA)
+        alpha_resized = cv2.resize(alpha, (ow, oh), interpolation=cv2.INTER_AREA)
+
+        # ── Position calculation ────────────────────────────────────────
+        if position == "top-right":
+            x_off = bw - ow - 20
+            y_off = 20
+        elif position == "bottom-center":
+            x_off = (bw - ow) // 2
+            y_off = bh - oh - 20
+        else:  # center
+            x_off = (bw - ow) // 2
+            y_off = (bh - oh) // 2
+
+        # Clamp to frame bounds
+        x_off = max(0, min(x_off, bw - ow))
+        y_off = max(0, min(y_off, bh - oh))
+
+        # ── Alpha-blend overlay onto base frame ─────────────────────────
+        roi = base_frame[y_off:y_off + oh, x_off:x_off + ow]
+        alpha_f = alpha_resized.astype(np.float32) / 255.0
+        if len(alpha_f.shape) == 2:
+            alpha_f = alpha_f[:, :, np.newaxis]  # (H, W, 1)
+
+        blended = (ovl_resized.astype(np.float32) * alpha_f +
+                   roi.astype(np.float32) * (1.0 - alpha_f))
+        base_frame[y_off:y_off + oh, x_off:x_off + ow] = blended.astype(np.uint8)
+
+        writer.write(base_frame)
+        frame_idx += 1
+
+    base_cap.release()
+    ovl_cap.release()
+    writer.release()
+
+    # Re-encode with libx264 so the result is compatible with later ffmpeg stages
+    re_encoded = output_path.replace(".mp4", "_h264.mp4")
+    cmd = [
+        "ffmpeg", "-y", "-i", output_path,
+        "-c:v", "libx264", "-preset", "ultrafast", "-an", re_encoded
+    ]
+    if subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0:
+        os.replace(re_encoded, output_path)
+    else:
+        logger.warning("H264 re-encode failed; keeping mp4v output")
+        if os.path.exists(re_encoded):
+            os.remove(re_encoded)
+
+    logger.info(f"Goal overlay composited → {output_path} ({frame_idx} frames)")
+    return True
+
 def generate_silent_audio(output_path: str, duration: float = 10.0) -> bool:
     try:
         cmd = [
@@ -100,6 +237,14 @@ def create_highlight_reel(video_path: str, highlights: list, match_id: str, outp
             has_game_audio = True
 
         if subprocess.run(extract_v).returncode == 0:
+            # ── Goal Overlay: composite green-screen Goal_1.mp4 on GOAL clips ──
+            if event_type.upper() == "GOAL":
+                overlaid = os.path.join(output_dir, f"goal_ovl_{match_id}_{i}.mp4")
+                if overlay_goal_animation(v_clip, overlaid, GOAL_OVERLAY_PATH,
+                                          position="center", scale=0.45):
+                    os.replace(overlaid, v_clip)   # replace raw clip with composited version
+                    logger.info(f"Goal overlay applied to clip {i}")
+
             clip_details.append({
                 "video": v_clip, "tts": a_tts if has_tts else None, 
                 "game_audio": a_game if has_game_audio else None,
